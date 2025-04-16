@@ -20,8 +20,8 @@ from .sub_agents.critic import critic_agent
 from .sub_agents.reviser import reviser_agent
 
 
-llm_auditor = SequentialAgent(
-    name='llm_auditor',
+core_agent = SequentialAgent(
+    name='core_agent',
     description=(
         'Evaluates LLM-generated answers, verifies actual accuracy using the'
         ' web, and refines the response to ensure alignment with real-world'
@@ -30,4 +30,4 @@ llm_auditor = SequentialAgent(
     sub_agents=[critic_agent, reviser_agent],
 )
 
-root_agent = llm_auditor
+root_agent = core_agent

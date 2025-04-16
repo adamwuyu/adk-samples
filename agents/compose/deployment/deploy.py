@@ -19,7 +19,7 @@ import os
 from absl import app
 from absl import flags
 from dotenv import load_dotenv
-from llm_auditor.agent import root_agent
+from core.agent import root_agent
 import vertexai
 from vertexai import agent_engines
 from vertexai.preview.reasoning_engines import AdkApp
@@ -54,7 +54,8 @@ def create() -> None:
             "pydantic (>=2.10.6,<3.0.0)",
             "absl-py (>=2.2.1,<3.0.0)",
         ],
-        extra_packages=["./llm_auditor"],
+        extra_packages=["./core"],
+        env_vars=get_env_vars(),
     )
     print(f"Created remote agent: {remote_agent.resource_name}")
 

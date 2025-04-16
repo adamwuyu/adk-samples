@@ -21,7 +21,7 @@ import dotenv
 from google.adk.runners import InMemoryRunner
 from google.genai.types import Part
 from google.genai.types import UserContent
-from llm_auditor.agent import root_agent
+from core.agent import root_agent
 import pytest
 
 

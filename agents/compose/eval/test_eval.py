@@ -29,7 +29,7 @@ def load_env():
 def test_all():
     """Test the agent's basic ability on a few examples."""
     AgentEvaluator.evaluate(
-        "llm_auditor",
+        "core",
         str(pathlib.Path(__file__).parent / "data"),
         num_runs=1,
     )
