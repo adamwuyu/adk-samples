@@ -1,4 +1,5 @@
 /docs
+/bugs
 .gitignore
 .env
 .DS_Store
