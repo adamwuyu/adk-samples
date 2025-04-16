@@ -38,6 +38,13 @@ gpt_4o_mini_instance = LiteLlm(
     stream=True
 )
 
+gemini_instance = LiteLlm(
+    model="openai/gemini-2.0-pro-exp-02-05",
+    api_base=os.getenv("GOOGLE_BASE_URL"),
+    api_key=os.getenv("GOOGLE_API_KEY"),
+    stream=True
+)
+
 # Instantiate LangChain Tavily tool
 # You can customize parameters like max_results if needed
 tavily_search_instance = TavilySearchResults(
