@@ -20,21 +20,21 @@ from google.adk.models import LlmResponse
 from google.genai import types
 from google.adk.models.lite_llm import LiteLlm
 import os
-from google.adk.tools.langchain_tool import LangchainTool
 from langchain_community.tools import TavilySearchResults
+from google.adk.tools import FunctionTool
 
 from . import prompt
 
 gpt_instance = LiteLlm(
     model="openai/gpt-4o",
-    api_base=os.getenv("ONEAPI_BASE_URL"),
-    api_key=os.getenv("ONEAPI_API_KEY"),
+    api_base=os.getenv("XIAI_BASE_URL"),
+    api_key=os.getenv("XIAI_API_KEY"),
     stream=True
 )
 gpt_4o_mini_instance = LiteLlm(
     model="openai/gpt-4o-mini",
-    api_base=os.getenv("ONEAPI_BASE_URL"),
-    api_key=os.getenv("ONEAPI_API_KEY"),
+    api_base=os.getenv("XIAI_BASE_URL"),
+    api_key=os.getenv("XIAI_API_KEY"),
     stream=True
 )
 
@@ -44,12 +44,27 @@ tavily_search_instance = TavilySearchResults(
     # max_results=5, # Example customization
 )
 
-# Wrap with LangchainTool, providing name and description
-adk_tavily_tool = LangchainTool(
-    name="InternetSearch",
-    description="Searches the internet for up-to-date information, news, and answers using Tavily.",
-    tool=tavily_search_instance
-)
+# Define a simple Python function to wrap the Tavily call
+def run_tavily_search(query: str) -> str:
+    """Searches the internet using Tavily to find up-to-date information based on the user query.
+
+    Args:
+        query: The search query string.
+
+    Returns:
+        A string containing the search results.
+    """
+    print(f"--- Running Tavily Search with query: {query} ---")
+    try:
+        results = tavily_search_instance.invoke({"query": query})
+        print(f"--- Tavily Search results: {results[:100]}... ---") # Log snippet of results
+        return str(results) # Return results as a string
+    except Exception as e:
+        print(f"Error running Tavily search: {e}")
+        return f"Error performing search: {e}"
+
+# Wrap the Python function with FunctionTool
+tavily_function_tool = FunctionTool(run_tavily_search)
 
 
 def _render_reference(
@@ -93,6 +108,6 @@ critic_agent = Agent(
     model=gpt_4o_mini_instance,
     name='critic_agent',
     instruction=prompt.CRITIC_PROMPT,
-    tools=[adk_tavily_tool],
+    tools=[tavily_function_tool],
     after_model_callback=_render_reference,
 )

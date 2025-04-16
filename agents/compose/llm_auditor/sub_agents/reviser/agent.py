@@ -26,14 +26,14 @@ _END_OF_EDIT_MARK = '---END-OF-EDIT---'
 
 gpt_instance = LiteLlm(
     model="openai/gpt-4o",
-    api_base=os.getenv("ONEAPI_BASE_URL"),
-    api_key=os.getenv("ONEAPI_API_KEY"),
+    api_base=os.getenv("XIAI_BASE_URL"),
+    api_key=os.getenv("XIAI_API_KEY"),
     stream=True
 )
 gpt_4o_mini_instance = LiteLlm(
     model="openai/gpt-4o-mini",
-    api_base=os.getenv("ONEAPI_BASE_URL"),
-    api_key=os.getenv("ONEAPI_API_KEY"),
+    api_base=os.getenv("XIAI_BASE_URL"),
+    api_key=os.getenv("XIAI_API_KEY"),
     stream=True
 )
 
