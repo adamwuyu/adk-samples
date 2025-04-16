@@ -1,3 +1,10 @@
 /docs
-.gitignores
+.gitignore
 .env
+.DS_Store
+.idea
+.vscode
+.cursorignore
+.pytest_cache
+.venv
+*.pyc
