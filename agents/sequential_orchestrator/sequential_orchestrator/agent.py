@@ -76,7 +76,7 @@ Examine the context provided.
 - If the context includes a previous draft and feedback on it, your task is to *revise* the previous draft strictly according to that feedback.
 CRITICAL: After you have generated the initial draft or the revised draft, you MUST call the 'save_draft' tool and pass the complete final draft text as the 'draft' argument to save it. Do not output the draft directly in your response, only call the tool.
 """,
-        description="Generates an initial document draft or refines an existing one based on feedback, then saves it using the save_draft tool.", # 更新描述
+        description="Generates an initial document draft or refines an existing one based on feedback, then saves it using the save_draft tool.",
         tools=[save_draft_tool], # 添加 save_draft_tool
         # output_key=CURRENT_DRAFT_KEY # 移除 output_key
     )
