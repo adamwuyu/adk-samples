@@ -90,4 +90,24 @@ def save_draft(draft: str, tool_context: ToolContext) -> dict[str, str]:
         return {"status": "Draft successfully saved to session state."}
     except Exception as e:
         logger.error(f"Error saving draft to session state: {e}", exc_info=True)
-        return {"status": f"Failed to save draft due to an error: {e}"} 
+        return {"status": f"Failed to save draft due to an error: {e}"}
+
+# --- 新增：获取最终草稿的 Tool ---
+def get_final_draft(tool_context: ToolContext) -> dict[str, str]:
+    """Retrieves the final draft text stored in the session state under the 'current_draft' key.
+
+    Args:
+        tool_context: The ADK tool context providing access to session state.
+
+    Returns:
+        A dict containing the retrieved draft text, e.g., {'final_draft_text': '...'}.
+        If the draft is not found, returns a default message in the text field.
+    """
+    try:
+        logger.info(f"Retrieving final draft from state key '{CURRENT_DRAFT_KEY}'.")
+        draft_content = tool_context.state.get(CURRENT_DRAFT_KEY, "Error: Final draft not found in session state.")
+        logger.info(f"Retrieved draft: '{draft_content[:100]}...'")
+        return {"final_draft_text": draft_content}
+    except Exception as e:
+        logger.error(f"Error retrieving final draft from session state: {e}", exc_info=True)
+        return {"final_draft_text": f"Error retrieving draft: {e}"} 

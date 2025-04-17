@@ -12,7 +12,7 @@ from google.adk.tools.agent_tool import AgentTool
 # --- End V0.5 Imports ---
 
 # 修改点：从同级目录下的 tools 包导入
-from .tools import mock_write_tool, mock_score_tool, store_initial_data, check_initial_data, save_draft
+from .tools import mock_write_tool, mock_score_tool, store_initial_data, check_initial_data, save_draft, get_final_draft
 from .tools.state_tools import INITIAL_MATERIAL_KEY, INITIAL_REQUIREMENTS_KEY, INITIAL_SCORING_CRITERIA_KEY, \
                                CURRENT_DRAFT_KEY, CURRENT_SCORE_KEY, CURRENT_FEEDBACK_KEY # 假设 state_tools.py 定义了这些
 
@@ -123,10 +123,12 @@ else:
 # --- 定义 Entry Agent (基本不变) ---
 entry_agent = None
 if llm_instance and loop_agent:
-    entry_agent = Agent(
-        name="writing_scoring_entry_agent",
-        model=llm_instance,
-        description="Handles initial user interaction, checks/stores initial data, triggers the writing/scoring loop, and presents the final result.",
+    # 修改点：改回 LlmAgent，使用 instruction (string), 使用 model 参数
+    entry_agent = LlmAgent(
+        name="entry_agent",
+        model=llm_instance, # 使用 model 参数
+        description="负责接收初始数据并按顺序编排写稿和审稿流程。",
+        # 修改点：合并 instructions 列表为单个 instruction 字符串
         instruction=(
             "You are the main entry point for the writing and scoring pipeline.\\n"
             "Follow these steps precisely:\\n"
@@ -136,16 +138,25 @@ if llm_instance and loop_agent:
             "   - After receiving the user's response, call the 'store_initial_data' tool with the provided data.\\n"
             "   - If the status was 'ready' or after 'store_initial_data' succeeds, proceed.\\n"
             "3. Announce that you are starting the iterative writing and scoring process.\\n"
-            "4. Call the 'WritingImprovementLoop' agent tool. When calling it, provide an argument named 'request' with the string value 'Start the iterative process'. This tool will run the writing and scoring loop multiple times.\\n"
-            "5. After the 'WritingImprovementLoop' tool finishes, retrieve the final results from the session state.\\n"
-            f"6. Present the final '{CURRENT_DRAFT_KEY}', '{CURRENT_SCORE_KEY}', and '{CURRENT_FEEDBACK_KEY}' clearly to the user.\\n"
-            "Report any tool errors clearly."
+            # "4. Call the 'WritingImprovementLoop' agent tool. When calling it, provide an argument named 'request' with the string value 'Start the iterative process'. This tool will run the writing and scoring loop multiple times.\\n" # 暂时注释掉 LoopAgent 调用，因为它可能还未适配或存在问题
+            "4. Call the `mock_write_tool` to generate the first draft based on initial data.\\n"
+            "5. Call the `save_draft` tool to save the generated draft.\\n"
+            "6. Call the `mock_score_tool` to score the draft.\\n"
+            "7. Check the score from the session state (`current_score`).\\n"
+            "8. If the draft score meets the threshold (e.g., >= 90), call the `get_final_draft` tool to get the final draft.\\n"
+            # "9. If the score is below the threshold, you might need to implement logic to call a refinement agent or loop (currently simplified). For now, just proceed to get the draft even if below threshold.\\n" # 简化逻辑说明
+            "9. Finish the process and output the final draft obtained from the `get_final_draft` tool regardless of the score (for now)."
         ),
         tools=[
             FunctionTool(func=check_initial_data),
             FunctionTool(func=store_initial_data),
-            AgentTool(agent=loop_agent)
-        ],
+            FunctionTool(func=save_draft),
+            FunctionTool(func=get_final_draft),
+            mock_write_tool,
+            mock_score_tool,
+            # AgentTool(agent=loop_agent) # 暂时注释掉 LoopAgent Tool
+        ]
+        # 移除 llm=... 参数，LlmAgent 使用 model=...
     )
     print(f"✅ Entry Agent '{entry_agent.name}' created.")
 else:
