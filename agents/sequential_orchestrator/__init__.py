@@ -1,3 +1,3 @@
-from .agent import SequentialAgent
+from .agent import writing_scoring_pipeline_agent
 
-__all__ = ["SequentialAgent"] 
+__all__ = ["writing_scoring_pipeline_agent"] 

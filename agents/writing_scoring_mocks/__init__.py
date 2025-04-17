@@ -1,3 +1,3 @@
-from .agents import MockWritingAgent, MockScoringAgent
+from .agents import mock_write_tool, mock_score_tool
 
-__all__ = ["MockWritingAgent", "MockScoringAgent"] 
+__all__ = ["mock_write_tool", "mock_score_tool"] 

@@ -1,74 +1,67 @@
-"""Sequential Agent to orchestrate writing and scoring."""
+"""Root ADK Agent to orchestrate the MVP writing and scoring pipeline."""
 
-from typing import Any, Dict, Type
+import os
+from dotenv import load_dotenv
+from google.adk.agents import Agent
+from google.adk.models.lite_llm import LiteLlm
 
-# 假设 Mock Agents 在父级或同级目录的模块中
-# 在实际项目中，你可能需要调整导入路径
-from ..writing_scoring_mocks import MockWritingAgent, MockScoringAgent
+# 导入我们定义的 Mock Tools (它们现在内部访问 state)
+# 假设此文件在 agents/sequential_orchestrator/ 中
+from ..writing_scoring_mocks import mock_write_tool, mock_score_tool
 
-# 从文档中复制或导入上下文类型定义
-PipelineContext = Dict[str, Any]
+# --- 加载环境变量 ---
+# 假设 .env 文件在项目根目录，即此文件向上两级
+# .env 文件路径可能需要根据实际项目结构调整
+dotenv_path = os.path.join(os.path.dirname(__file__), '..', '..', '.env')
+load_dotenv(dotenv_path=dotenv_path)
+# 也可以直接加载默认的 .env
+# load_dotenv()
 
-class SequentialAgent:
-    """Orchestrates a sequence of agents (e.g., write then score)."""
+# --- 配置 LLM 实例 ---
+# 使用 gpt-4o-mini 作为示例，确保 .env 文件中有对应的 ONEAPI 配置
+gpt_4o_mini_instance = None
+oneapi_base_url = os.getenv("ONEAPI_BASE_URL")
+oneapi_api_key = os.getenv("ONEAPI_API_KEY")
 
-    def __init__(self, writing_agent: Type[MockWritingAgent], scoring_agent: Type[MockScoringAgent]):
-        """Initializes with instances of the agents to sequence."""
-        # 注意：这里传入的是类本身或实例，取决于你的设计
-        # 为简单起见，我们假设传入的是实例
-        self.writing_agent = writing_agent()
-        self.scoring_agent = scoring_agent()
-        print("SequentialAgent initialized.")
+if oneapi_base_url and oneapi_api_key:
+    try:
+        gpt_4o_mini_instance = LiteLlm(
+            model="openai/gemini-2.0-pro-exp-02-05", # 使用你之前选择的 Gemini 模型
+            api_base=os.getenv("GOOGLE_BASE_URL"),   # 对应修改 Base URL
+            api_key=os.getenv("GOOGLE_API_KEY"),    # 对应修改 API Key
+            stream=True
+        )
+        print(f"✅ LiteLlm instance for Gemini Pro configured.") # 更新打印信息
+    except Exception as e:
+        print(f"❌ Error configuring LiteLlm: {e}")
+else:
+    print("❌ GOOGLE_BASE_URL or GOOGLE_API_KEY not found in environment variables. Cannot configure LiteLlm.") # 更新打印信息
 
-    def invoke(
-        self,
-        initial_material: str,
-        initial_requirements: str,
-        initial_scoring_criteria: str
-    ) -> PipelineContext:
-        """
-        Runs the sequential pipeline: write -> score.
+# --- 定义 Root Agent (简化指令) ---
+writing_scoring_pipeline_agent = None
 
-        Args:
-            initial_material: The initial material for writing.
-            initial_requirements: The writing requirements.
-            initial_scoring_criteria: The scoring criteria.
+# 只有在 LLM 实例成功配置后才创建 Agent
+if gpt_4o_mini_instance:
+    writing_scoring_pipeline_agent = Agent(
+        name="writing_scoring_pipeline_agent_mvp",
+        model=gpt_4o_mini_instance,
+        description="Orchestrates the writing and scoring process sequentially. Reads initial data from session state via tools.",
+        instruction=(
+            "You are an orchestrator for a writing and scoring pipeline.\n"
+            "The necessary initial inputs are stored in session state and the tools will access them.\n"
+            "Follow these steps strictly:\n"
+            "1. Call the 'mock_write_tool'. It will use the material and requirements from the state.\n"
+            "2. Extract the 'draft' from the result of 'mock_write_tool'. If the tool failed, report the error and stop.\n"
+            "3. Call the 'mock_score_tool', passing the 'draft' from step 2 as the argument. The tool will use the scoring criteria from the state.\n"
+            "4. Extract the 'score' and 'feedback' from the result of 'mock_score_tool'. If the tool failed, report the error and stop.\n"
+            "5. Present the final 'draft' (from step 2), 'score', and 'feedback' (from step 4) clearly to the user.\n"
+            "Report any tool errors clearly. DO NOT ask the user for input data."
+        ),
+        tools=[mock_write_tool, mock_score_tool],
+    )
+    print(f"✅ ADK Agent '{writing_scoring_pipeline_agent.name}' created.")
+else:
+    print("❌ ADK Agent creation skipped because LiteLlm instance was not configured.")
 
-        Returns:
-            The final context containing the draft, score, and feedback.
-        """
-        print("=== SequentialAgent invoked ===")
-        # 1. 初始化上下文 (Task 1.3.1: 适配接收初始输入)
-        context: PipelineContext = {
-            "initial_material": initial_material,
-            "initial_requirements": initial_requirements,
-            "initial_scoring_criteria": initial_scoring_criteria,
-            "current_draft": None,
-            "current_score": None,
-            "current_feedback": None
-        }
-        print("Initial context created.")
-
-        # 2. 调用 MockWritingAgent (Task 1.3.2: 串联调用)
-        try:
-            context = self.writing_agent.invoke(context)
-            print("Context after MockWritingAgent.")
-        except Exception as e:
-            print(f"Error invoking MockWritingAgent: {e}")
-            context['current_feedback'] = f"写稿 Agent 执行失败: {e}"
-            return context # 提前返回错误
-
-        # 3. 调用 MockScoringAgent (Task 1.3.2: 串联调用)
-        try:
-            context = self.scoring_agent.invoke(context)
-            print("Context after MockScoringAgent.")
-        except Exception as e:
-            print(f"Error invoking MockScoringAgent: {e}")
-            # 保留已生成的文稿，但标记评分失败
-            context['current_score'] = None
-            context['current_feedback'] = (context.get('current_feedback', '') + f"；评分 Agent 执行失败: {e}").strip('；')
-            return context # 提前返回错误
-
-        # 4. 返回最终结果 (Task 1.3.3: 适配输出最终结果)
-        print("=== SequentialAgent finished ===")
-        return context 
+# 移除旧的 Class 定义
+# class SequentialAgent: ... 
