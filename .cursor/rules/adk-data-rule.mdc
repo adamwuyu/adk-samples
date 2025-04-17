@@ -1,0 +1,117 @@
+---
+description: 写稿agent的数据保存和传输机制
+globs: 
+alwaysApply: false
+---
+# 数据保存和使用规则
+
+## 1. Session 的使用
+
+*   **核心目的：** Session State (`session.state`) 是 ADK 实现 Agent **记忆**的关键机制。它是一个与特定会话（由 `app_name`, `user_id`, `session_id` 唯一标识）绑定的 Python 字典，用于在**多次交互轮次**之间**持久化**上下文信息、用户偏好、中间结果等。
+*   **初始化：** 可以在创建 Session 时通过 `session_service.create_session(..., state=initial_state)` 来提供初始状态数据。这对于注入用户配置、档案或任务启动参数非常有用。
+*   **主要访问方式 (推荐)：**
+    *   **通过 Tools (`ToolContext`)**: 这是最标准、最可靠的让运行时逻辑访问 Session State 的方式。如果 Tool 函数的最后一个参数定义为 `tool_context: ToolContext`，ADK Runner 会自动注入它。Tool 内部可以通过 `tool_context.state.get('key', default_value)` 读取状态，或通过 `tool_context.state['key'] = value` 写入状态。Tool 被设计为封装与外部世界或特定状态相关的操作。
+    *   **通过 Callbacks (`CallbackContext`)**: Callbacks（如 `before_model_callback`, `before_tool_callback`）同样接收一个包含 `.state` 属性的上下文对象，允许它们在 Agent 生命周期的特定检查点读取或修改状态，以实现 Guardrails 或动态调整。
+*   **Agent (LLM) 与 State 的关系：**
+    *   Agent 的 LLM 会在其接收到的**上下文（Prompt）中隐式地"看到"** Session State 的信息（具体如何呈现取决于 Runner 的实现）。LLM **应该能够基于这些信息进行推理**（例如，知道用户有一个偏好设置）。
+    *   但是，直接在 Agent 的 `instruction` 中**明确指示 LLM "从 State 中检索 Key X" 或使用类似 `session_state.get(...)` 的语法是不可靠的，也不是标准的 ADK 模式**。LLM 的职责是理解目标并决定调用哪个 Tool，而不是负责实现从 State 中检索数据的具体逻辑。
+*   **持久化服务：** `InMemorySessionService` 适用于测试和开发，数据随程序结束而丢失。生产环境需要实现自定义的 Session Service 对接数据库或其他持久化存储。
+
+## 3. Agent 间通信数据结构 (基于 Session State 和 Tools)
+
+### 目标
+
+明确在 ADK 框架下，Agent 及其调用的 Tools 之间传递数据和上下文的标准机制，特别是在 MVP 写稿与评分流程中的应用。
+
+### 数据通信机制定义
+
+在标准的 ADK 架构中，Agent 间的显式"通信"或数据传递主要通过以下机制实现，而不是通过直接传递大型上下文对象：
+
+1.  **Session State (`session.state`):** 这是跨交互轮次持久化数据的主要载体。初始输入（如素材、要求、评分标准）和重要的中间结果或状态标志应存储在此处。
+2.  **Tool 参数和返回值:** Agent (LLM) 根据其指令和上下文（包括 Session State 信息）决定调用哪个 Tool，并提供必要的参数（通常是简单的标识符或前一个 Tool 的输出）。Tool 执行后返回结构化的结果（通常是字典）。
+3.  **ToolContext:** Tools 通过由 Runner 注入的 `tool_context` 参数访问 Session State，以获取执行所需的上下文信息或写入需要持久化的结果。
+
+### MVP 阶段 Session State 数据结构示例
+
+以下字典结构代表了我们 MVP 流程中存储在 `session.state` 中的关键数据：
+
+```python
+# 示例：Session State 中存储的数据结构内容
+session_state = {
+    # --- 初始输入 (在创建 Session 时设置) ---
+    "initial_material": "...",      # str: 原始素材内容
+    "initial_requirements": "...",  # str: 写作要求
+    "initial_scoring_criteria": "...", # str: 评分标准
+
+    # --- 中间/最终结果 (可能由 Tool 或 Agent 的 output_key 写入) ---
+    "current_draft": None,          # Optional[str]: 由 mock_write_tool 生成的文稿
+    "current_score": None,          # Optional[float]: 由 mock_score_tool 生成的分数
+    "current_feedback": None        # Optional[str]: 由 mock_score_tool 生成的反馈
+    # 可以根据需要添加其他状态，如 'last_error', 'pipeline_status' 等
+}
+```
+
+### 字段说明 (存储于 Session State)
+
+*   `initial_material`, `initial_requirements`, `initial_scoring_criteria`: (类型: `str`) 存储任务的初始输入。通常在 Session 创建时通过 `state` 参数设置 (参考 **KP1**)。被 Tools 通过 `ToolContext` 读取 (参考 **KP2**)。
+*   `current_draft`: (类型: `Optional[str]`) 存储 `mock_write_tool` 生成的文稿。该 Tool 返回包含此内容的字典，Agent (LLM) 从 Tool 结果中提取此值，并可能将其传递给后续 Tool 或用于最终响应。也可以考虑让 Tool 直接更新 State 或使用 Agent 的 `output_key`。
+*   `current_score`, `current_feedback`: (类型: `Optional[float]`, `Optional[str]`) 存储 `mock_score_tool` 的评分和反馈。处理方式同 `current_draft`。
+
+### 数据使用流程 (基于 ADK Runner)
+
+```mermaid
+sequenceDiagram
+    participant EntryPoint as 入口 (测试脚本)
+    participant Runner
+    participant SessionState as Session State
+    participant Agent as Root Agent (LLM)
+    participant WriteTool as mock_write_tool
+    participant ScoreTool as mock_score_tool
+
+    EntryPoint->>Runner: 初始化 Runner, SessionService
+    EntryPoint->>SessionState: 创建 Session (含初始 state: material, reqs, criteria)
+    EntryPoint->>Runner: run_async(触发消息)
+
+    Runner->>Agent: 加载上下文 (含 state) 并调用
+    Agent->>Runner: 决定调用 mock_write_tool (无显式参数)
+    Runner->>WriteTool: 执行 Tool (注入 ToolContext)
+    activate WriteTool
+    WriteTool->>SessionState: 读取 initial_material, initial_requirements
+    WriteTool-->>Runner: 返回结果 {\"status\": \"success\", \"draft\": \"...\"}
+    deactivate WriteTool
+
+    Runner->>Agent: 提供 WriteTool 结果
+    Agent->>Runner: 决定调用 mock_score_tool(draft=\"...\")
+    Runner->>ScoreTool: 执行 Tool (注入 ToolContext, 传入 draft)
+    activate ScoreTool
+    ScoreTool->>SessionState: 读取 initial_scoring_criteria
+    ScoreTool-->>Runner: 返回结果 {\"status\": \"success\", \"score\": ..., \"feedback\": \"...\"}
+    deactivate ScoreTool
+
+    Runner->>Agent: 提供 ScoreTool 结果
+    Agent->>Runner: 生成最终响应文本 (含 draft, score, feedback)
+    Runner-->>EntryPoint: 返回最终响应事件
+    EntryPoint->>User/System: 显示最终结果
+
+```
+
+1.  **初始化:** 入口脚本创建 `SessionService`，并在创建 Session 时通过 `state` 参数存入初始的 `initial_material`, `initial_requirements`, `initial_scoring_criteria`。
+2.  **启动:** 入口脚本调用 `Runner.run_async()`。
+3.  **写稿:** Runner 调用 Root Agent。Agent 根据指令决定调用 `mock_write_tool`。Runner 执行该 Tool，注入 `ToolContext`。Tool 内部通过 `tool_context.state.get()` 读取 `initial_material` 和 `initial_requirements`，执行模拟写作，并返回包含 `draft` 的结果字典。
+4.  **评分:** Runner 将 `mock_write_tool` 的结果提供给 Agent。Agent 提取 `draft`，并决定调用 `mock_score_tool`，将 `draft` 作为参数传递。Runner 执行该 Tool，注入 `ToolContext`。Tool 内部通过 `tool_context.state.get()` 读取 `initial_scoring_criteria`，执行模拟评分，并返回包含 `score` 和 `feedback` 的结果字典。
+5.  **响应:** Runner 将 `mock_score_tool` 的结果提供给 Agent。Agent 根据指令，结合之前获得的 `draft` 以及刚收到的 `score` 和 `feedback`，生成最终的文本响应给用户。
+6.  **状态持久化:** Session State 中的初始数据保持不变（因为 Tools 只读）。如果需要保存中间或最终结果，可以通过 Tools 写入 State 或配置 Agent 的 `output_key`。
+
+### 优点 (此模式)
+
+*   **符合 ADK 规范:** 与教程和示例 Agent 的最佳实践一致。
+*   **解耦:** Agent 关注决策，Tools 关注执行和与状态/外部的交互。
+*   **健壮:** 避免了让 LLM 直接处理状态访问语法的不可靠性。
+*   **可维护:** Tools 内部逻辑清晰，易于测试和修改。
+
+### 后续迭代考虑
+
+*   使用结构化数据类 (如 Pydantic) 定义 State 内容以增强类型安全。
+*   在 Tools 中添加错误处理和状态更新逻辑。
+*   使用 Agent 的 `output_key` 自动保存关键结果到 State。
+*   实现持久化的 `SessionService`。

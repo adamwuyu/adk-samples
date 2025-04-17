@@ -1,0 +1,73 @@
+---
+description: ADK的核心要素（入口函数、Runner、Agent、Tools）的定位与分工
+globs: 
+alwaysApply: false
+---
+
+# 核心要素（入口函数、Runner、Agent、Tools）的定位与分工
+
+```mermaid
+graph TD
+    subgraph "应用层 (Application Layer)"
+        EntryPoint["入口函数 (e.g., async_main, test script)"]
+    end
+    subgraph "ADK 框架层 (ADK Framework Layer)"
+        Runner["Runner"] -- 使用 --> SessionSvc["Session Service"]
+        Runner -- 运行/协调 --> AgentObj["Agent (实例)"]
+        AgentObj -- 配置 --> LLM["LLM (模型)"]
+        AgentObj -- 配置 --> ToolsList["Tools (列表)"]
+        AgentObj -- 配置 --> CallbacksList["Callbacks (列表)"]
+        Runner -- 6. 执行 --> ActualTool["实际 Tool 函数"]
+        Runner -- 6. 执行 --> ActualCallback["实际 Callback 函数"]
+        ActualTool -- 访问State --> ToolCtx["ToolContext (由Runner注入)"]
+        ActualCallback -- 访问State --> CallbackCtx["CallbackContext (由Runner注入)"]
+        ToolCtx -- 读写 --> SessionState["Session State (由Service管理)"]
+        CallbackCtx -- 读写 --> SessionState
+    end
+
+    EntryPoint -- 1. 初始化 --> Runner
+    EntryPoint -- 1. 初始化 --> SessionSvc
+    EntryPoint -- 2. 准备输入, 调用 --> Runner
+    Runner -- 3. 加载/准备上下文(含State) --> AgentObj
+    AgentObj -- 4. LLM推理 (决定调用Tool/Callback) --> Runner
+    Runner -- 5. 处理Agent响应 (检查是否调用Tool/Callback) --> Runner
+    %% 内部决策点
+    %% Tool 调用路径
+    Runner -- 6. 执行 Tool --> ActualTool
+    ActualTool -- 7. 返回结果 --> Runner
+    Runner -- 8. 将Tool结果反馈给 --> AgentObj
+    %% <--- 修改点: 突出反馈循环
+    %% Callback 调用路径 (类似)
+    Runner -- 6. 执行 Callback --> ActualCallback
+    ActualCallback -- 7. 返回结果/控制 --> Runner
+    %% Runner -- 8. 将Callback影响反馈给 --> AgentObj %% (Callback通常是控制流或预处理，不一定有结果给Agent)
+
+    AgentObj -- 9. 基于(Tool结果)继续推理 --> Runner
+    %% <--- 修改点: Agent处理反馈后的再次输出
+    Runner -- 10. 更新Session --> SessionSvc
+    Runner -- 11. 返回事件/结果 --> EntryPoint
+    EntryPoint -- 12. 处理最终结果 --> User/System
+
+    style EntryPoint fill:#c9f,stroke:#333,stroke-width:1px
+    style Runner fill:#9cf,stroke:#333,stroke-width:2px
+    style AgentObj fill:#9fc,stroke:#333,stroke-width:1px
+    style ActualTool fill:#ffc,stroke:#333,stroke-width:1px
+    style ActualCallback fill:#ffc,stroke:#333,stroke-width:1px
+    %% 修改点: 突出反馈循环箭头样式
+    linkStyle 7 stroke:#ff4500,stroke-width:2px,color:orangered
+```
+
+*   **入口函数 (例如 `async_main` 或测试脚本)**:
+    *   **定位：** 应用层，ADK 系统的**客户端/启动器**。
+    *   **分工：** 负责初始化 ADK 核心组件 (`Runner`, `SessionService`)；准备初始的用户输入 (`types.Content`) 和/或初始 Session State；调用 `runner.run_async()` 启动交互；处理从 Runner 返回的最终事件/响应；进行必要的应用级设置和清理。
+*   **Runner**:
+    *   **定位：** ADK 框架的**核心协调器/引擎**。
+    *   **分工：** 管理整个 Agent 的执行循环。它接收输入，与 `SessionService` 交互以管理历史和状态，为 Agent 准备包含上下文（历史、状态、指令）的 Prompt，调用 Agent (LLM)，解析 LLM 的响应（文本、Function Call），在正确的时机执行 Callbacks，根据 LLM 的请求调用 Tools（并注入 `ToolContext`），**将 Tool 的执行结果包装并反馈给 Agent 进行下一步推理**，更新 Session 状态，并最终产生一系列事件流。它是连接所有组件的粘合剂。 %% <--- 修改点: 明确反馈步骤
+*   **Agent (`Agent` 类实例)**:
+    *   **定位：** 核心的**推理单元/大脑**。
+    *   **分工：** 通过 `model` (LLM) 和 `instruction` (指令) 定义其行为逻辑。通过 `tools` 定义其可执行的能力。通过 `sub_agents` 实现委派。通过 `callbacks` 实现生命周期钩子。它的核心任务是根据 Runner 提供的上下文（**包括之前的 Tool 执行结果**）进行推理，并决定下一步行动（生成文本、调用工具、委派等），将决策返回给 Runner。 %% <--- 修改点: 明确 Agent 处理 Tool 结果
+*   **Tools (Python 函数)**:
+    *   **定位：** Agent 的具体**能力/执行器**，是 Agent 与外部世界（API、数据库、文件系统，也包括 Session State）交互的\"手脚\"。
+    *   **分工：** 封装特定的、可复用的逻辑。接收由 Agent (LLM) 决定、Runner 传递的参数。执行具体操作（如 API 调用、计算，或通过 `ToolContext` 访问和操作 Session State）。将执行结果（通常是字典）返回给 Runner。清晰的文档字符串 (docstring) 对 LLM 理解其功能至关重要。
+
+**核心流程概览：** 入口函数启动 Runner -> Runner 协调 Agent -> Agent (LLM) 思考并决定调用 Tool -> Runner 执行 Tool (Tool 可能访问 State) -> **Runner 将 Tool 结果反馈给 Agent** -> Agent 基于 Tool 结果继续思考并生成最终响应 (或调用下一个 Tool) -> Runner 返回结果给入口函数。Session State 由 Session Service 管理，主要通过 Runner 注入的 `ToolContext` 或 `CallbackContext` 被访问。 %% <--- 修改点: 更新流程概览
