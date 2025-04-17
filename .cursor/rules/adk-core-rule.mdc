@@ -67,7 +67,8 @@ graph TD
     *   **定位：** 核心的**推理单元/大脑**。
     *   **分工：** 通过 `model` (LLM) 和 `instruction` (指令) 定义其行为逻辑。通过 `tools` 定义其可执行的能力。通过 `sub_agents` 实现委派。通过 `callbacks` 实现生命周期钩子。它的核心任务是根据 Runner 提供的上下文（**包括之前的 Tool 执行结果**）进行推理，并决定下一步行动（生成文本、调用工具、委派等），将决策返回给 Runner。 %% <--- 修改点: 明确 Agent 处理 Tool 结果
 *   **Tools (Python 函数)**:
-    *   **定位：** Agent 的具体**能力/执行器**，是 Agent 与外部世界（API、数据库、文件系统，也包括 Session State）交互的\"手脚\"。
+    *   **定位：** Agent 的具体**能力/执行器**，是 Agent 与外部世界（API、数据库、文件系统，也包括 Session State）交互的"手脚"。
     *   **分工：** 封装特定的、可复用的逻辑。接收由 Agent (LLM) 决定、Runner 传递的参数。执行具体操作（如 API 调用、计算，或通过 `ToolContext` 访问和操作 Session State）。将执行结果（通常是字典）返回给 Runner。清晰的文档字符串 (docstring) 对 LLM 理解其功能至关重要。
+    *   **注册与使用 (关键点)：** 虽然 Tool 的核心逻辑是普通的 Python 函数，但在将其提供给 `Agent` 实例时，**标准做法是使用 `google.adk.tools.FunctionTool` 进行包装**。例如：`tools=[FunctionTool(func=my_python_tool_func)]`。`FunctionTool` 负责读取函数的签名和文档字符串，生成必要的元数据和 Schema，供 LLM 理解和调用。直接将原始 Python 函数传递给 `tools` 列表可能在简单场景下工作，但不是推荐或保证的方式，且可能导致元数据缺失或框架无法正确处理。
 
 **核心流程概览：** 入口函数启动 Runner -> Runner 协调 Agent -> Agent (LLM) 思考并决定调用 Tool -> Runner 执行 Tool (Tool 可能访问 State) -> **Runner 将 Tool 结果反馈给 Agent** -> Agent 基于 Tool 结果继续思考并生成最终响应 (或调用下一个 Tool) -> Runner 返回结果给入口函数。Session State 由 Session Service 管理，主要通过 Runner 注入的 `ToolContext` 或 `CallbackContext` 被访问。 %% <--- 修改点: 更新流程概览
