@@ -138,23 +138,16 @@ if llm_instance and loop_agent:
             "   - After receiving the user's response, call the 'store_initial_data' tool with the provided data.\\n"
             "   - If the status was 'ready' or after 'store_initial_data' succeeds, proceed.\\n"
             "3. Announce that you are starting the iterative writing and scoring process.\\n"
-            # "4. Call the 'WritingImprovementLoop' agent tool. When calling it, provide an argument named 'request' with the string value 'Start the iterative process'. This tool will run the writing and scoring loop multiple times.\\n" # 暂时注释掉 LoopAgent 调用，因为它可能还未适配或存在问题
-            "4. Call the `mock_write_tool` to generate the first draft based on initial data.\\n"
-            "5. Call the `save_draft` tool to save the generated draft.\\n"
-            "6. Call the `mock_score_tool` to score the draft.\\n"
-            "7. Check the score from the session state (`current_score`).\\n"
-            "8. If the draft score meets the threshold (e.g., >= 90), call the `get_final_draft` tool to get the final draft.\\n"
-            # "9. If the score is below the threshold, you might need to implement logic to call a refinement agent or loop (currently simplified). For now, just proceed to get the draft even if below threshold.\\n" # 简化逻辑说明
-            "9. Finish the process and output the final draft obtained from the `get_final_draft` tool regardless of the score (for now)."
+            "4. Call the 'WritingImprovementLoop' agent tool. Pass an argument named 'request' with the value 'Start the iterative process'. This tool will execute the writing and scoring cycle multiple times.\\n"
+            "5. Once the 'WritingImprovementLoop' tool finishes execution, call the `get_final_draft` tool to retrieve the final draft text produced by the loop.\\n"
+            "6. Examine the response from the `get_final_draft` tool. Extract the text value associated with the key 'final_draft_text'.\\n"
+            "7. Present the extracted text clearly as the final result. Start your response with 'The final draft after the improvement loop is:'."
         ),
         tools=[
             FunctionTool(func=check_initial_data),
             FunctionTool(func=store_initial_data),
-            FunctionTool(func=save_draft),
             FunctionTool(func=get_final_draft),
-            mock_write_tool,
-            mock_score_tool,
-            # AgentTool(agent=loop_agent) # 暂时注释掉 LoopAgent Tool
+            AgentTool(agent=loop_agent)
         ]
         # 移除 llm=... 参数，LlmAgent 使用 model=...
     )
