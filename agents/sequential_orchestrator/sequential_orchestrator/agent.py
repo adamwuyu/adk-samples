@@ -12,7 +12,7 @@ from google.adk.tools.agent_tool import AgentTool
 # --- End V0.5 Imports ---
 
 # 修改点：从同级目录下的 tools 包导入
-from .tools import mock_write_tool, mock_score_tool, store_initial_data, check_initial_data
+from .tools import mock_write_tool, mock_score_tool, store_initial_data, check_initial_data, save_draft
 from .tools.state_tools import INITIAL_MATERIAL_KEY, INITIAL_REQUIREMENTS_KEY, INITIAL_SCORING_CRITERIA_KEY, \
                                CURRENT_DRAFT_KEY, CURRENT_SCORE_KEY, CURRENT_FEEDBACK_KEY # 假设 state_tools.py 定义了这些
 
@@ -60,21 +60,25 @@ else:
 # 检查并获取 LLM 实例，如果未配置则后续 Agent 创建会跳过
 llm_instance = gpt_4o_mini_instance # 使用之前配置好的实例
 
-# 定义 WritingAgent
+# 定义 WritingAgent (修改指令, 移除 output_key, 添加 save_draft tool)
 writing_agent = None
 if llm_instance:
+    # 先定义 save_draft_tool 以便在 WritingAgent 中使用
+    save_draft_tool = FunctionTool(func=save_draft)
+
     writing_agent = LlmAgent(
         name="WritingAgent",
         model=llm_instance,
-        instruction=f"""
-        You are a writing agent. Your task is to generate or refine a document draft based on the session state.
-        Check the session state:
-        - If '{CURRENT_DRAFT_KEY}' does NOT exist or is empty, use '{INITIAL_MATERIAL_KEY}' and '{INITIAL_REQUIREMENTS_KEY}' to write an initial draft.
-        - If '{CURRENT_DRAFT_KEY}' exists AND '{CURRENT_FEEDBACK_KEY}' also exists, refine the '{CURRENT_DRAFT_KEY}' based on the feedback in '{CURRENT_FEEDBACK_KEY}'.
-        Output *only* the generated or refined draft text.
-        """,
-        description="Generates or refines the document draft based on initial inputs or feedback.",
-        output_key=CURRENT_DRAFT_KEY # 将输出直接写入 Session State
+        instruction="""You are a writing agent focusing solely on document generation or refinement.
+Your task is to produce the text for a document draft.
+Examine the context provided.
+- If the context indicates this is the first attempt (e.g., no previous draft or feedback is mentioned), write an initial draft based on the core material and requirements present in the context.
+- If the context includes a previous draft and feedback on it, your task is to *revise* the previous draft strictly according to that feedback.
+CRITICAL: After you have generated the initial draft or the revised draft, you MUST call the 'save_draft' tool and pass the complete final draft text as the 'draft' argument to save it. Do not output the draft directly in your response, only call the tool.
+""",
+        description="Generates an initial document draft or refines an existing one based on feedback, then saves it using the save_draft tool.", # 更新描述
+        tools=[save_draft_tool], # 添加 save_draft_tool
+        # output_key=CURRENT_DRAFT_KEY # 移除 output_key
     )
     print(f"✅ Sub-Agent '{writing_agent.name}' created.")
 else:
