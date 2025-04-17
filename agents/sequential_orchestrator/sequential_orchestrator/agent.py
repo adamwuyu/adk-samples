@@ -4,11 +4,17 @@ import os
 from dotenv import load_dotenv
 from google.adk.agents import Agent
 from google.adk.models.lite_llm import LiteLlm
+# --- V0.5 Imports ---
+from google.adk.agents.llm_agent import LlmAgent
+from google.adk.agents.loop_agent import LoopAgent
 from google.adk.tools import FunctionTool
+from google.adk.tools.agent_tool import AgentTool 
+# --- End V0.5 Imports ---
 
 # 修改点：从同级目录下的 tools 包导入
 from .tools import mock_write_tool, mock_score_tool, store_initial_data, check_initial_data
-from .tools.state_tools import INITIAL_MATERIAL_KEY, INITIAL_REQUIREMENTS_KEY, INITIAL_SCORING_CRITERIA_KEY
+from .tools.state_tools import INITIAL_MATERIAL_KEY, INITIAL_REQUIREMENTS_KEY, INITIAL_SCORING_CRITERIA_KEY, \
+                               CURRENT_DRAFT_KEY, CURRENT_SCORE_KEY, CURRENT_FEEDBACK_KEY # 假设 state_tools.py 定义了这些
 
 # --- 加载环境变量 ---
 # 修改点：确保加载 agents/ 目录下的 .env 文件
@@ -49,41 +55,103 @@ else:
     # 修改点：修正 else 块的日志信息，使其检查并报告 OneAPI 变量缺失
     print("❌ ONEAPI_BASE_URL or ONEAPI_API_KEY not found in environment variables. Cannot configure LiteLlm.")
 
-# --- 定义 Root Agent (使用 check_initial_data Tool) ---
-root_agent = None
+# --- V0.5: 定义 Loop 子 Agents ---
 
-if gpt_4o_mini_instance:
-    root_agent = Agent(
-        name="writing_scoring_pipeline_agent_mvp",
-        model=gpt_4o_mini_instance,
-        description="Orchestrates the writing and scoring process sequentially. Uses tools to check for and store initial data if missing.",
+# 检查并获取 LLM 实例，如果未配置则后续 Agent 创建会跳过
+llm_instance = gpt_4o_mini_instance # 使用之前配置好的实例
+
+# 定义 WritingAgent
+writing_agent = None
+if llm_instance:
+    writing_agent = LlmAgent(
+        name="WritingAgent",
+        model=llm_instance,
+        instruction=f"""
+        You are a writing agent. Your task is to generate or refine a document draft based on the session state.
+        Check the session state:
+        - If '{CURRENT_DRAFT_KEY}' does NOT exist or is empty, use '{INITIAL_MATERIAL_KEY}' and '{INITIAL_REQUIREMENTS_KEY}' to write an initial draft.
+        - If '{CURRENT_DRAFT_KEY}' exists AND '{CURRENT_FEEDBACK_KEY}' also exists, refine the '{CURRENT_DRAFT_KEY}' based on the feedback in '{CURRENT_FEEDBACK_KEY}'.
+        Output *only* the generated or refined draft text.
+        """,
+        description="Generates or refines the document draft based on initial inputs or feedback.",
+        output_key=CURRENT_DRAFT_KEY # 将输出直接写入 Session State
+    )
+    print(f"✅ Sub-Agent '{writing_agent.name}' created.")
+else:
+    print("❌ WritingAgent creation skipped because LLM instance was not configured.")
+
+# 定义 ScoringTool (现在只用于 ScoringAgent)
+scoring_tool = FunctionTool(func=mock_score_tool)
+print(f"✅ ScoringTool created (for ScoringAgent), wrapping mock_score_tool.")
+
+# 定义 ScoringAgent (新)
+scoring_agent = None
+if llm_instance:
+    scoring_agent = LlmAgent(
+        name="ScoringAgent",
+        model=llm_instance,
+        instruction="Your only task is to call the 'mock_score_tool'. This tool reads the current draft and scoring criteria from the session state and writes the score and feedback back to the state.",
+        description="Calls the scoring tool to evaluate the current draft.",
+        tools=[scoring_tool], # <--- ScoringAgent 使用 ScoringTool
+        # No output_key needed, tool writes directly to state
+    )
+    print(f"✅ Sub-Agent '{scoring_agent.name}' created.")
+else:
+    print("❌ ScoringAgent creation skipped because LLM instance was not configured.")
+
+
+# 定义 LoopAgent (修改 sub_agents)
+loop_agent = None
+if writing_agent and scoring_agent: # 确保两个子 Agent 都已创建
+    loop_agent = LoopAgent(
+        name="WritingImprovementLoop",
+        sub_agents=[
+            writing_agent, # 第一步：写作或修改
+            scoring_agent  # 第二步：调用评分工具
+        ],
+        max_iterations=3
+    )
+    print(f"✅ LoopAgent '{loop_agent.name}' created with max_iterations={loop_agent.max_iterations}.")
+else:
+     print("❌ LoopAgent creation skipped because sub-agents were not configured.")
+
+
+# --- 定义 Entry Agent (基本不变) ---
+entry_agent = None
+if llm_instance and loop_agent:
+    entry_agent = Agent(
+        name="writing_scoring_entry_agent",
+        model=llm_instance,
+        description="Handles initial user interaction, checks/stores initial data, triggers the writing/scoring loop, and presents the final result.",
         instruction=(
-            "You are an orchestrator for a writing and scoring pipeline.\\n"
-            "Your goal is to generate a draft based on initial material and requirements, then score it based on criteria.\\n"
+            "You are the main entry point for the writing and scoring pipeline.\\n"
             "Follow these steps precisely:\\n"
-            "1. Call the 'check_initial_data' tool to see if the required data (initial_material, initial_requirements, initial_scoring_criteria) is already present in the session state.\\n"
+            "1. Call the 'check_initial_data' tool to see if the required initial data is already present.\\n"
             "2. Examine the result from 'check_initial_data':\\n"
-            "   - If the status is 'missing_data', ask the user to provide ALL missing information in one single message. For example: 'Hello! To start the writing and scoring process, I need the initial material, the requirements for the draft, and the scoring criteria. Could you please provide them?' Wait for the user's response.\\n"
-            "   - After receiving the user's response containing the data, call the 'store_initial_data' tool, passing the user-provided initial_material, initial_requirements, and initial_scoring_criteria as arguments to the tool.\\n"
-            "   - If the status from 'check_initial_data' was 'ready', or after 'store_initial_data' has been successfully called, proceed to the next step.\\n"
-            "3. Call the 'mock_write_tool'. It will use the data now guaranteed to be in the state.\\n"
-            "4. Extract the 'draft' from the result of 'mock_write_tool'. If the tool failed, report the error and stop.\\n"
-            "5. Call the 'mock_score_tool', passing the 'draft' from step 4 as the argument. It will use the state data.\\n"
-            "6. Extract the 'score' and 'feedback' from the result of 'mock_score_tool'. If the tool failed, report the error and stop.\\n"
-            "7. Present the final 'draft' (from step 4), 'score', and 'feedback' (from step 6) clearly to the user.\\n"
+            "   - If the status is 'missing_data', ask the user to provide ALL missing information (initial_material, initial_requirements, initial_scoring_criteria) in one single message. Wait for the user's response.\\n"
+            "   - After receiving the user's response, call the 'store_initial_data' tool with the provided data.\\n"
+            "   - If the status was 'ready' or after 'store_initial_data' succeeds, proceed.\\n"
+            "3. Announce that you are starting the iterative writing and scoring process.\\n"
+            "4. Call the 'WritingImprovementLoop' agent tool. When calling it, provide an argument named 'request' with the string value 'Start the iterative process'. This tool will run the writing and scoring loop multiple times.\\n"
+            "5. After the 'WritingImprovementLoop' tool finishes, retrieve the final results from the session state.\\n"
+            f"6. Present the final '{CURRENT_DRAFT_KEY}', '{CURRENT_SCORE_KEY}', and '{CURRENT_FEEDBACK_KEY}' clearly to the user.\\n"
             "Report any tool errors clearly."
         ),
-        # 使用 FunctionTool 包装所有 Tools, 添加 check_initial_data
         tools=[
             FunctionTool(func=check_initial_data),
             FunctionTool(func=store_initial_data),
-            FunctionTool(func=mock_write_tool),
-            FunctionTool(func=mock_score_tool),
+            AgentTool(agent=loop_agent)
         ],
     )
-    print(f"✅ ADK Agent '{root_agent.name}' created.")
+    print(f"✅ Entry Agent '{entry_agent.name}' created.")
 else:
-    print("❌ ADK Agent creation skipped because LiteLlm instance was not configured.")
+    print("❌ Entry Agent creation skipped because prerequisites (LLM or LoopAgent) were not met.")
+
+# --- 确保导出正确的 Agent (不变) ---
+root_agent = entry_agent
+
+if not root_agent:
+     print("❌❌❌ Critical Error: No root agent could be configured for export!")
 
 # 移除旧的 Class 定义
 # class SequentialAgent: ... 

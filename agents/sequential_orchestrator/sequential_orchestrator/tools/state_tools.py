@@ -10,6 +10,11 @@ logger = logging.getLogger(__name__)
 INITIAL_MATERIAL_KEY = "initial_material"
 INITIAL_REQUIREMENTS_KEY = "initial_requirements"
 INITIAL_SCORING_CRITERIA_KEY = "initial_scoring_criteria"
+# --- V0.5 State Keys ---
+CURRENT_DRAFT_KEY = "current_draft"
+CURRENT_SCORE_KEY = "current_score"
+CURRENT_FEEDBACK_KEY = "current_feedback"
+# --- End V0.5 State Keys ---
 
 def check_initial_data(tool_context: ToolContext) -> dict[str, str]:
     """Checks if initial_material, initial_requirements, and initial_scoring_criteria are present in the session state.
