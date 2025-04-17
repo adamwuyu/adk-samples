@@ -5,6 +5,8 @@ import os
 import asyncio
 from pprint import pprint
 from dotenv import load_dotenv
+import json
+import logging
 
 # --- ADK Imports (模仿教程) ---
 from google.adk.sessions import InMemorySessionService
@@ -15,8 +17,8 @@ project_root = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, project_root)
 
 # --- 从我们创建的模块中导入 Agent ---
-# agent.py 中定义了 writing_scoring_pipeline_agent 实例
-from agents.sequential_orchestrator import writing_scoring_pipeline_agent
+# 修改点：导入 root_agent
+from agents.sequential_orchestrator import root_agent
 
 # --- 定义 App 常量 (模仿教程) ---
 APP_NAME = "writing_scoring_mvp_app"
@@ -63,9 +65,9 @@ async def async_main():
     print("--- Starting MVP Sequential Workflow Test (ADK Runner) ---")
 
     # 检查 Agent 是否已成功创建 (在 sequential_orchestrator/agent.py 中)
-    if not writing_scoring_pipeline_agent:
-        print("❌ Error: writing_scoring_pipeline_agent is not defined or failed to initialize.")
-        print("   Please check agents/sequential_orchestrator/agent.py and ensure LLM is configured.")
+    if not root_agent:
+        print("❌ Error: root_agent is not defined or failed to initialize.")
+        print("   Please check agents/sequential_orchestrator/sequential_orchestrator/agent.py and ensure LLM is configured.") # 更新路径提示
         return
 
     # 1. 初始化 Session Service (模仿教程)
@@ -92,7 +94,7 @@ async def async_main():
 
     # 4. 初始化 Runner (模仿教程)
     runner = Runner(
-        agent=writing_scoring_pipeline_agent, # 使用我们导入的 Agent 实例
+        agent=root_agent, # 使用我们导入的 Agent 实例
         app_name=APP_NAME,
         session_service=session_service
     )

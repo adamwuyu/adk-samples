@@ -1,3 +1,4 @@
-from .agent import writing_scoring_pipeline_agent
+# Expose the agent from the inner package
+from .sequential_orchestrator import root_agent
 
-__all__ = ["writing_scoring_pipeline_agent"] 
+__all__ = ["root_agent"] 
