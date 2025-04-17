@@ -12,12 +12,18 @@ import logging
 from google.adk.sessions import InMemorySessionService
 from google.adk.runners import Runner
 from google.genai import types # For creating message Content/Parts
-# 确保 agents 目录在 Python 路径中
-project_root = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, project_root)
+
+# 修改点：确保 agents 目录在 Python 路径中
+# 获取脚本当前目录 agents/sequential_orchestrator/tests/
+current_dir_for_path = os.path.dirname(os.path.abspath(__file__))
+# 计算项目根目录 (向上三级)
+project_root_for_path = os.path.abspath(os.path.join(current_dir_for_path, '..', '..', '..'))
+# 将项目根目录添加到 sys.path，以便能找到顶层的 'agents' 包
+sys.path.insert(0, project_root_for_path)
+print(f"Added project root to sys.path: {project_root_for_path}") # 确认路径
 
 # --- 从我们创建的模块中导入 Agent ---
-# 修改点：导入 root_agent
+# 现在应该能正确找到 agents 包了
 from agents.sequential_orchestrator import root_agent
 
 # --- 定义 App 常量 (模仿教程) ---
@@ -65,6 +71,7 @@ async def async_main():
     print("--- Starting MVP Sequential Workflow Test (ADK Runner) ---")
 
     # 检查 Agent 是否已成功创建 (在 sequential_orchestrator/agent.py 中)
+    # 注意：agent.py 内部的 .env 加载应该已保证 Agent 创建成功
     if not root_agent:
         print("❌ Error: root_agent is not defined or failed to initialize.")
         print("   Please check agents/sequential_orchestrator/sequential_orchestrator/agent.py and ensure LLM is configured.") # 更新路径提示
@@ -122,14 +129,19 @@ async def async_main():
 
 # --- 脚本入口 (模仿教程) ---
 if __name__ == "__main__":
-    # 确保 .env 文件已加载 (agent.py 中应该已经加载，但这里再次确保)
-    dotenv_path = os.path.join(os.path.dirname(__file__), '.env')
+    # 修改点：确保 .env 文件已加载
+    # 获取脚本当前目录 agents/sequential_orchestrator/tests/
+    current_dir_for_dotenv = os.path.dirname(os.path.abspath(__file__))
+    # 计算 .env 文件路径 (向上两级到 agents/ 目录)
+    dotenv_path = os.path.abspath(os.path.join(current_dir_for_dotenv, '..', '..', '.env'))
+
     if os.path.exists(dotenv_path):
       load_dotenv(dotenv_path=dotenv_path)
+      print(f"Loaded .env file from: {dotenv_path}") # 添加日志确认
     else:
-      # 尝试加载默认的 .env 文件
+      # 如果 agents/.env 不存在，尝试加载默认的
+      print(f"Warning: Did not find .env file at {dotenv_path}. Trying default load_dotenv().")
       load_dotenv()
-      print("Loaded default .env, ensure necessary variables (e.g., ONEAPI_...) are present.")
 
     # 运行主异步函数
     try:

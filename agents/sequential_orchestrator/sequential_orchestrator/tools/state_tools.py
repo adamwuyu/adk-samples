@@ -11,6 +11,33 @@ INITIAL_MATERIAL_KEY = "initial_material"
 INITIAL_REQUIREMENTS_KEY = "initial_requirements"
 INITIAL_SCORING_CRITERIA_KEY = "initial_scoring_criteria"
 
+def check_initial_data(tool_context: ToolContext) -> dict[str, str]:
+    """Checks if initial_material, initial_requirements, and initial_scoring_criteria are present in the session state.
+
+    Args:
+        tool_context: The ADK tool context providing access to session state.
+
+    Returns:
+        A dict with 'status': 'ready' if all required keys are present and non-empty,
+        'missing_data' otherwise.
+    """
+    logger.info("Checking for initial data in session state...")
+    state = tool_context.state
+    material = state.get(INITIAL_MATERIAL_KEY)
+    requirements = state.get(INITIAL_REQUIREMENTS_KEY)
+    criteria = state.get(INITIAL_SCORING_CRITERIA_KEY)
+
+    if material and requirements and criteria:
+        logger.info("Initial data found in session state.")
+        return {"status": "ready"}
+    else:
+        missing_keys = []
+        if not material: missing_keys.append(INITIAL_MATERIAL_KEY)
+        if not requirements: missing_keys.append(INITIAL_REQUIREMENTS_KEY)
+        if not criteria: missing_keys.append(INITIAL_SCORING_CRITERIA_KEY)
+        logger.warning(f"Initial data missing in session state. Missing keys: {missing_keys}")
+        return {"status": "missing_data"}
+
 def store_initial_data(
     initial_material: str,
     initial_requirements: str,
