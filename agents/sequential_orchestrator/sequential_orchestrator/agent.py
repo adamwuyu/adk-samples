@@ -13,8 +13,9 @@ from google.adk.tools.agent_tool import AgentTool
 
 # 修改点：从同级目录下的 tools 包导入
 from .tools import mock_write_tool, mock_score_tool, store_initial_data, check_initial_data, save_draft, get_final_draft
-from .tools.state_tools import INITIAL_MATERIAL_KEY, INITIAL_REQUIREMENTS_KEY, INITIAL_SCORING_CRITERIA_KEY, \
-                               CURRENT_DRAFT_KEY, CURRENT_SCORE_KEY, CURRENT_FEEDBACK_KEY # 假设 state_tools.py 定义了这些
+# 修改点：导入新的检查工具
+from .tools.state_tools import check_score_threshold_tool, LOOP_CONTROL_KEY, INITIAL_MATERIAL_KEY, INITIAL_REQUIREMENTS_KEY, INITIAL_SCORING_CRITERIA_KEY, \
+                               CURRENT_DRAFT_KEY, CURRENT_SCORE_KEY, CURRENT_FEEDBACK_KEY, SCORE_THRESHOLD_KEY
 
 # --- 加载环境变量 ---
 # 修改点：确保加载 agents/ 目录下的 .env 文件
@@ -69,14 +70,14 @@ if llm_instance:
     writing_agent = LlmAgent(
         name="WritingAgent",
         model=llm_instance,
-        instruction="""You are a writing agent focusing solely on document generation or refinement.
-Your task is to produce the text for a document draft.
-Examine the context provided.
-- If the context indicates this is the first attempt (e.g., no previous draft or feedback is mentioned), write an initial draft based on the core material and requirements present in the context.
-- If the context includes a previous draft and feedback on it, your task is to *revise* the previous draft strictly according to that feedback.
-CRITICAL: After you have generated the initial draft or the revised draft, you MUST call the 'save_draft' tool and pass the complete final draft text as the 'draft' argument to save it. Do not output the draft directly in your response, only call the tool.
-""",
-        description="Generates an initial document draft or refines an existing one based on feedback, then saves it using the save_draft tool.",
+        instruction="""Your ONLY task is to generate or revise a document draft based on the context, and then save it.
+Examine the context carefully:
+- If no previous draft/feedback exists, write a NEW draft based on initial material/requirements.
+- If a previous draft and feedback exist, REVISE the previous draft according to the feedback.
+
+CRITICAL ACTION: After generating or revising the draft text, you MUST call the 'save_draft' tool. Pass the complete final draft text as the 'draft' argument to this tool.
+ABSOLUTELY DO NOT output the draft text in your response. Your response should ONLY contain the call to the 'save_draft' tool.""",
+        description="Generates or refines a draft and saves it using the save_draft tool. MUST NOT output draft text directly.",
         tools=[save_draft_tool], # 添加 save_draft_tool
         # output_key=CURRENT_DRAFT_KEY # 移除 output_key
     )
@@ -84,43 +85,65 @@ CRITICAL: After you have generated the initial draft or the revised draft, you M
 else:
     print("❌ WritingAgent creation skipped because LLM instance was not configured.")
 
-# 定义 ScoringTool (现在只用于 ScoringAgent)
-scoring_tool = FunctionTool(func=mock_score_tool)
-print(f"✅ ScoringTool created (for ScoringAgent), wrapping mock_score_tool.")
+# --- V0.5: 定义评分和检查 Agent (用于 Loop) ---
 
-# 定义 ScoringAgent (新)
+# 定义 Scoring Tool (会被 ScoringAgent 调用)
+scoring_tool = FunctionTool(func=mock_score_tool)
+
+# 定义 ScoringAgent (简单封装 Scoring Tool)
 scoring_agent = None
 if llm_instance:
     scoring_agent = LlmAgent(
         name="ScoringAgent",
         model=llm_instance,
-        instruction="Your only task is to call the 'mock_score_tool'. This tool reads the current draft and scoring criteria from the session state and writes the score and feedback back to the state.",
+        instruction="Your sole task is to call the 'mock_score_tool'. Do nothing else.",
         description="Calls the scoring tool to evaluate the current draft.",
-        tools=[scoring_tool], # <--- ScoringAgent 使用 ScoringTool
-        # No output_key needed, tool writes directly to state
+        tools=[scoring_tool],
     )
     print(f"✅ Sub-Agent '{scoring_agent.name}' created.")
 else:
     print("❌ ScoringAgent creation skipped because LLM instance was not configured.")
 
+# 定义 Check Score Tool (会被 CheckScoreAgent 调用)
+check_score_tool = FunctionTool(func=check_score_threshold_tool)
 
-# 定义 LoopAgent (修改 sub_agents)
+# 定义 CheckScoreAgent (简单封装 Check Score Tool)
+check_score_agent = None
+if llm_instance:
+    check_score_agent = LlmAgent(
+        name="CheckScoreAgent",
+        model=llm_instance,
+        # 指令让 LLM 调用工具。LlmAgent 会将工具返回的 "STOP" 或 None 作为自己的执行结果
+        instruction="Your sole task is to call the 'check_score_threshold_tool'. Relay its exact return value.", 
+        description="Calls the check score tool and relays its return value ('STOP' or None).",
+        tools=[check_score_tool],
+    )
+    print(f"✅ Sub-Agent '{check_score_agent.name}' created.")
+else:
+    print("❌ CheckScoreAgent creation skipped because LLM instance was not configured.")
+
+
+# 定义 LoopAgent (使用新的 Agent 列表)
 loop_agent = None
-if writing_agent and scoring_agent: # 确保两个子 Agent 都已创建
+# 修改点：依赖 writing_agent, scoring_agent, check_score_agent
+if writing_agent and scoring_agent and check_score_agent:
     loop_agent = LoopAgent(
         name="WritingImprovementLoop",
+        # 修改点：使用 Agent 列表
         sub_agents=[
-            writing_agent, # 第一步：写作或修改
-            scoring_agent  # 第二步：调用评分工具
+            writing_agent,      # 步骤 1: 写作
+            scoring_agent,     # 步骤 2: 评分
+            check_score_agent  # 步骤 3: 检查是否停止
         ],
         max_iterations=3
     )
     print(f"✅ LoopAgent '{loop_agent.name}' created with max_iterations={loop_agent.max_iterations}.")
 else:
-     print("❌ LoopAgent creation skipped because sub-agents were not configured.")
+     # 修改点：更新日志
+     print("❌ LoopAgent creation skipped because one or more sub-agents (Writing, Scoring, CheckScore) were not configured.")
 
 
-# --- 定义 Entry Agent (基本不变) ---
+# --- 定义 Entry Agent (检查 loop_agent 存在) ---
 entry_agent = None
 if llm_instance and loop_agent:
     # 修改点：改回 LlmAgent，使用 instruction (string), 使用 model 参数

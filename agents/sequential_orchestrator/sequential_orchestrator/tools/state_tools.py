@@ -16,6 +16,10 @@ CURRENT_SCORE_KEY = "current_score"
 CURRENT_FEEDBACK_KEY = "current_feedback"
 # --- End V0.5 State Keys ---
 
+# V0.5 - 新增阈值 Key
+SCORE_THRESHOLD_KEY = "score_threshold" # 用于判断是否提前终止循环
+LOOP_CONTROL_KEY = "loop_control" # 新增：用于存放循环控制信号 ('STOP' 或 'CONTINUE')
+
 def check_initial_data(tool_context: ToolContext) -> dict[str, str]:
     """Checks if initial_material, initial_requirements, and initial_scoring_criteria are present in the session state.
 
@@ -61,7 +65,7 @@ def store_initial_data(
         A dict with a status message.
     """
     try:
-        logger.info(f"Storing initial data into session state: Material='{initial_material[:50]}...', Requirements='{initial_requirements[:50]}...', Criteria='{initial_scoring_criteria[:50]}...'")
+        logger.info(f"Storing initial data into session state: Material='{initial_material[:50]}...', Requirements='{initial_requirements[:50]}...', Criteria='{initial_scoring_criteria[:50]}...'" )
         tool_context.state.update({
             INITIAL_MATERIAL_KEY: initial_material,
             INITIAL_REQUIREMENTS_KEY: initial_requirements,
@@ -84,7 +88,7 @@ def save_draft(draft: str, tool_context: ToolContext) -> dict[str, str]:
         A dict with a status message.
     """
     try:
-        logger.info(f"Saving draft to session state: '{draft[:100]}...'")
+        logger.info(f"Saving draft to session state: '{draft[:100]}...'" )
         tool_context.state[CURRENT_DRAFT_KEY] = draft
         logger.info(f"Successfully saved draft to state key '{CURRENT_DRAFT_KEY}'.")
         return {"status": "Draft successfully saved to session state."}
@@ -106,8 +110,57 @@ def get_final_draft(tool_context: ToolContext) -> dict[str, str]:
     try:
         logger.info(f"Retrieving final draft from state key '{CURRENT_DRAFT_KEY}'.")
         draft_content = tool_context.state.get(CURRENT_DRAFT_KEY, "Error: Final draft not found in session state.")
-        logger.info(f"Retrieved draft: '{draft_content[:100]}...'")
+        logger.info(f"Retrieved draft: '{draft_content[:100]}...'" )
         return {"final_draft_text": draft_content}
     except Exception as e:
         logger.error(f"Error retrieving final draft from session state: {e}", exc_info=True)
-        return {"final_draft_text": f"Error retrieving draft: {e}"} 
+        return {"final_draft_text": f"Error retrieving draft: {e}"}
+
+# --- V0.5: Tool for checking score threshold (Modified to write state) --- 
+def check_score_threshold_tool(tool_context: ToolContext) -> dict:
+    """Checks if the current score meets or exceeds the threshold and writes control signal to state.
+
+    Reads CURRENT_SCORE_KEY and SCORE_THRESHOLD_KEY from session state.
+    Writes 'STOP' or 'CONTINUE' to LOOP_CONTROL_KEY in session state.
+
+    Args:
+        tool_context: The ADK tool context providing access to session state.
+
+    Returns:
+        A dictionary indicating the outcome for logging purposes.
+    """
+    state = tool_context.state
+    score = state.get(CURRENT_SCORE_KEY)
+    threshold = state.get(SCORE_THRESHOLD_KEY)
+    control_signal = 'CONTINUE' # Default to continue
+
+    logger.info(f"Checking score threshold: Score={score}, Threshold={threshold}")
+
+    if score is None or threshold is None:
+        logger.warning(
+            f"Cannot check score threshold: Score ('{CURRENT_SCORE_KEY}': {score}) or "
+            f"Threshold ('{SCORE_THRESHOLD_KEY}': {threshold}) not found or is None in state. Setting control to CONTINUE."
+        )
+        control_signal = 'CONTINUE'
+    else:
+        try:
+            score = float(score)
+            threshold = float(threshold)
+            if score >= threshold:
+                logger.info(f"Score ({score}) meets or exceeds threshold ({threshold}). Setting control to STOP.")
+                control_signal = 'STOP'
+            else:
+                logger.info(f"Score ({score}) is below threshold ({threshold}). Setting control to CONTINUE.")
+                control_signal = 'CONTINUE'
+        except (ValueError, TypeError) as e:
+            logger.error(
+                f"Error converting score/threshold to float: Score={score}, Threshold={threshold}. Error: {e}. Setting control to CONTINUE."
+            )
+            control_signal = 'CONTINUE'
+
+    # Write the control signal to state
+    state[LOOP_CONTROL_KEY] = control_signal
+    logger.info(f"Wrote control signal to state: {LOOP_CONTROL_KEY}={control_signal}")
+
+    # Return a status dictionary (Tool should return something)
+    return {"status": "checked", "loop_control_set_to": control_signal} 

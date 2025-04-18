@@ -25,6 +25,8 @@ print(f"Added project root to sys.path: {project_root_for_path}") # 确认路径
 # --- 从我们创建的模块中导入 Agent ---
 # root_agent 现在指向 entry_agent，这是正确的入口点
 from agents.sequential_orchestrator import root_agent
+from agents.sequential_orchestrator.sequential_orchestrator.tools.state_tools import SCORE_THRESHOLD_KEY
+
 
 # --- 定义 App 常量 (模仿教程) ---
 APP_NAME = "writing_scoring_mvp_app"
@@ -85,6 +87,7 @@ async def async_main():
         "initial_material": "关于人工智能在创意写作中的应用的几篇文章摘要。",
         "initial_requirements": "写一篇面向普通读者的博客文章，介绍 AI 写作工具的优缺点。",
         "initial_scoring_criteria": "重点评估文章的清晰度、流畅性以及对 AI 优缺点的平衡论述。",
+        SCORE_THRESHOLD_KEY: 8.5
         # V0.5: 不需要预设 current_draft 等，因为 entry_agent 会处理
     }
     print("\nInput Data (to be set in initial session state):")
