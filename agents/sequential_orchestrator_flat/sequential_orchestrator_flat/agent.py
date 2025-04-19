@@ -25,10 +25,15 @@ from .prompt import ROOT_AGENT_INSTRUCTION
 from .tools import (
     check_initial_data,
     store_initial_data,
-    write_draft,
-    score_draft,
     check_progress,
     get_final_draft
+)
+from .tools.llm_tools import (
+    generate_initial_draft,
+    save_draft_result,
+    generate_draft_improvement,
+    generate_draft_scoring,
+    save_scoring_result
 )
 
 logger = logging.getLogger(__name__)
@@ -101,9 +106,16 @@ root_agent = Agent(
         FunctionTool(func=check_initial_data),
         FunctionTool(func=store_initial_data),
         
-        # 核心功能工具
-        FunctionTool(func=write_draft),
-        FunctionTool(func=score_draft),
+        # V0.9: 新版LLM工具 - 符合ADK标准架构
+        FunctionTool(func=generate_initial_draft),
+        FunctionTool(func=save_draft_result),
+        FunctionTool(func=generate_draft_improvement),
+        
+        # V0.9: 新版LLM评分工具 - 符合ADK标准架构
+        FunctionTool(func=generate_draft_scoring),
+        FunctionTool(func=save_scoring_result),
+        
+        # 流程控制工具
         FunctionTool(func=check_progress),
         
         # 结果获取工具

@@ -7,7 +7,8 @@ alwaysApply: false
 
 1. 在一个新任务开始前，务必先阅读 [ADK构架.md](mdc:docs/ADK构架.md) ：它是核心中的核心
 2. 在需要示例代码时，务必参考 [adk_tutorial_cn.ipynb](mdc:docs/adk_tutorial_cn.ipynb) : 这个教程逐步构建了一个多 Agent 框架，包含了从简单到复杂的各种 ADK 核心概念（Tool 定义、多模型、Agent 委派、Session State、Callbacks），是理解 ADK 设计模式和最佳实践的绝佳起点。后续开发应将其作为主要参考，遇到类似场景先查找教程中的实现方式。
-2. 优先参考 agents/ 目录: 当教程中未涵盖具体场景或需要更复杂的实现时，应系统性地分析 agents/ 目录下的现有 Agent 实现。这有助于我们遵循项目内部已有的代码风格、架构模式和“轮子”，避免不必要的重复开发或引入不一致的设计。
-3. 如果需要查看adk-python库（本项目所依赖的最重要的库），请查看：/Users/adam/adk/adk-python
-4. 对于在前两点中找不到的参考，请查看本项目的文档 ADK_DOCS 和 ADK_WIKI ，已经在Cursor的Docs中收录了这两个文档
-5. 对于在前三点中找不到的参考，询问我的建议
+3. 优先参考 agents/ 目录: 当教程中未涵盖具体场景或需要更复杂的实现时，应系统性地分析 agents/ 目录下的现有 Agent 实现。这有助于我们遵循项目内部已有的代码风格、架构模式和“轮子”，避免不必要的重复开发或引入不一致的设计。
+4. 查看三方python库的源码能从根本上解决问题，它们在：/Users/adam/miniconda3/envs/adk/lib/python3.11/site-packages；其中包含了lightllm的源码；
+5. adk-python库（本项目所依赖的最重要的库），请查看：/Users/adam/adk/adk-python
+6. 无法通过前面5点找到的参考，请查看本项目的文档 ADK_DOCS、 ADK_WIKI 、LiteLlm_DOCS ，已经在Cursor的Docs中收录了这两个文档
+7. 无法通过前面6点找到的参考，询问我的建议
