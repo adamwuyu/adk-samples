@@ -14,23 +14,37 @@
 
 """Tools for Sequential Orchestrator."""
 
+import logging
+
+from .logging_utils import setup_logging
+from .state_manager import StateManager
 from .state_tools import (
     check_initial_data,
     store_initial_data,
     get_final_draft
 )
-
 from .writing_tools import (
     write_draft,
     score_draft,
     check_progress
 )
 
+# 设置日志配置
+setup_logging(level=logging.INFO)
+logger = logging.getLogger(__name__)
+logger.info("初始化Sequential Orchestrator工具包，配置日志系统...")
+
 __all__ = [
+    # 状态管理工具
     "check_initial_data",
     "store_initial_data",
     "get_final_draft",
+    
+    # 写作与评分工具
     "write_draft",
     "score_draft",
-    "check_progress"
+    "check_progress",
+    
+    # 状态管理类
+    "StateManager"
 ] 
