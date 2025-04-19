@@ -15,18 +15,26 @@
 """写作与评分工具，扁平化实现。"""
 
 import logging
-from google.adk.tools import ToolContext
+import asyncio
+from typing import Dict, Any, List, Optional
+from google.adk.tools.tool_context import ToolContext
+import os
 
-from .state_tools import (
-    INITIAL_MATERIAL_KEY, INITIAL_REQUIREMENTS_KEY, INITIAL_SCORING_CRITERIA_KEY,
-    CURRENT_DRAFT_KEY, CURRENT_SCORE_KEY, CURRENT_FEEDBACK_KEY, 
-    SCORE_THRESHOLD_KEY, ITERATION_COUNT_KEY, IS_COMPLETE_KEY
+from .state_manager import (
+    StateManager, INITIAL_MATERIAL_KEY, INITIAL_REQUIREMENTS_KEY, 
+    INITIAL_SCORING_CRITERIA_KEY, CURRENT_DRAFT_KEY, CURRENT_SCORE_KEY,
+    CURRENT_FEEDBACK_KEY, SCORE_THRESHOLD_KEY, ITERATION_COUNT_KEY, IS_COMPLETE_KEY
 )
+from .logging_utils import log_generation_event
+from .llm_generator import get_content_generator
 
 logger = logging.getLogger(__name__)
 
 # 最大迭代次数
 MAX_ITERATIONS = 3
+
+# 控制是否使用LLM生成器的环境变量
+USE_LLM_GENERATOR = os.environ.get("USE_LLM_GENERATOR", "false").lower() == "true"
 
 
 def write_draft(tool_context: ToolContext) -> dict:
@@ -43,22 +51,245 @@ def write_draft(tool_context: ToolContext) -> dict:
     Returns:
         dict: 包含生成的文稿摘要和状态信息的字典
     """
-    state = tool_context.state
+    try:
+        # 使用状态管理器
+        state_manager = StateManager(tool_context)
+        
+        # 获取当前迭代计数，如果不存在则初始化为0
+        iteration_count = state_manager.get(ITERATION_COUNT_KEY, 0)
+        state_manager.set(ITERATION_COUNT_KEY, iteration_count + 1)
+        
+        # 检查是首次撰写还是改进
+        current_draft = state_manager.get(CURRENT_DRAFT_KEY)
+        feedback = state_manager.get(CURRENT_FEEDBACK_KEY)
+        
+        # 根据环境变量决定使用LLM生成还是模拟生成
+        if USE_LLM_GENERATOR:
+            logger.info("使用LLM生成器创建内容")
+            draft = _generate_with_llm(state_manager, current_draft, feedback, iteration_count)
+        else:
+            logger.info("使用模拟内容生成器创建内容")
+            draft = _generate_mock_content(state_manager, current_draft, feedback, iteration_count)
+        
+        # 高效存储文稿
+        if state_manager.store_draft_efficiently(draft):
+            logger.info(f"成功将文稿（{len(draft)}字符）保存到状态。")
+            # 返回摘要信息，避免重复传递完整内容
+            return {
+                "status": "success",
+                "draft_summary": draft[:100] + "..." if len(draft) > 100 else draft,
+                "draft_length": len(draft),
+                "iteration": iteration_count + 1
+            }
+        else:
+            logger.error("文稿保存验证失败")
+            return {
+                "status": "error",
+                "message": "文稿保存失败，无法验证状态更新"
+            }
+    except Exception as e:
+        logger.error(f"write_draft工具执行失败: {e}", exc_info=True)
+        return {
+            "status": "error",
+            "message": f"生成文稿时发生错误: {str(e)}"
+        }
+
+
+def _generate_with_llm(
+    state_manager: StateManager,
+    current_draft: str = None,
+    feedback: str = None,
+    iteration_count: int = 0
+) -> str:
+    """
+    使用LLM生成文稿内容
     
-    # 获取当前迭代计数，如果不存在则初始化为0
-    iteration_count = state.get(ITERATION_COUNT_KEY, 0)
-    state[ITERATION_COUNT_KEY] = iteration_count + 1
+    Args:
+        state_manager: 状态管理器
+        current_draft: 当前文稿，如果为None则表示需要生成初始文稿
+        feedback: 当前反馈，用于改进文稿
+        iteration_count: 当前迭代次数
+        
+    Returns:
+        生成的文稿内容
+    """
+    try:
+        # 获取LLM生成器
+        generator = get_content_generator(temperature=0.7)
+        
+        if not current_draft:
+            # 首次撰写：基于初始素材和要求
+            material = state_manager.get(INITIAL_MATERIAL_KEY, "")
+            requirements = state_manager.get(INITIAL_REQUIREMENTS_KEY, "")
+            criteria = state_manager.get(INITIAL_SCORING_CRITERIA_KEY, "")
+            
+            logger.info(f"使用LLM撰写初始文稿。素材长度:{len(material)}，要求长度:{len(requirements)}，评分标准长度:{len(criteria)}")
+            
+            # 创建提示词
+            prompt = f"""
+你是一位专业文案写手。请基于以下素材和要求，撰写一篇高质量文章：
+
+## 素材
+{material}
+
+## 写作要求
+{requirements}
+
+## 评分标准
+{criteria}
+
+请直接输出文章内容，不要添加额外说明。
+"""
+            
+            # 生成备用内容
+            backup_draft = f"[使用备用内容]\n\n"
+            backup_draft += "AI写作工具的优点包括：\n"
+            backup_draft += "1. 提高效率：AI工具可以快速生成内容，节省大量时间\n"
+            backup_draft += "2. 辅助创作：可以帮助克服写作障碍，提供创意灵感\n"
+            backup_draft += "3. 多语言支持：能够翻译和生成多种语言的内容\n"
+            backup_draft += "4. 创意激发：提供不同角度的思考和表达方式\n\n"
+            backup_draft += "AI写作工具的缺点包括：\n"
+            backup_draft += "1. 缺乏深度：生成内容有时缺乏深度和独特见解\n"
+            backup_draft += "2. 格式和风格限制：难以完全掌握特定领域的写作风格\n"
+            backup_draft += "3. 事实准确性问题：可能生成不准确或过时的信息\n"
+            backup_draft += "4. 缺乏个性化：生成内容可能缺乏作者独特的个人风格\n"
+            
+            # 使用同步方法，避免异步生成器问题
+            def generate_content():
+                material = state_manager.get(INITIAL_MATERIAL_KEY, "")
+                requirements = state_manager.get(INITIAL_REQUIREMENTS_KEY, "")
+                criteria = state_manager.get(INITIAL_SCORING_CRITERIA_KEY, "")
+                return generator.generate_initial_draft_sync(material, requirements, criteria)
+            
+            # 在同步上下文中执行，如果失败则使用备用内容
+            try:
+                logger.info("开始LLM生成初始文稿...")
+                
+                # 如果是实际的LLM客户端实例
+                if not isinstance(generator.model, str):
+                    result = generate_content()
+                    if result and not result.startswith("生成文稿失败"):
+                        draft = result
+                        logger.info(f"LLM生成成功，得到{len(draft)}字符的内容")
+                    else:
+                        logger.warning("LLM生成失败，使用备用内容")
+                        draft = backup_draft
+                else:
+                    # 使用模拟内容作为LLM字符串模型的备用方案
+                    logger.warning(f"使用的是字符串模型名称({generator.model})，实际生成中会通过API调用，这里使用模拟内容")
+                    draft = f"[使用备用内容 - 实际部署时将调用{generator.model}]\n\n" + backup_draft[15:]
+            except Exception as e:
+                logger.error(f"生成文稿时发生错误: {e}", exc_info=True)
+                draft = f"[生成出错 - {str(e)}]\n\n" + backup_draft[15:]
+            
+            # 记录生成事件
+            log_generation_event("llm_draft_created", draft, {
+                "iteration": iteration_count,
+                "type": "initial_draft",
+                "material_length": len(material),
+                "requirements_length": len(requirements)
+            })
+        else:
+            # 基于反馈改进现有文稿
+            logger.info(f"使用LLM改进文稿（迭代 {iteration_count}）。")
+            
+            # 获取文稿元数据，避免多次记录完整内容
+            draft_metadata = state_manager.get_draft_metadata()
+            criteria = state_manager.get(INITIAL_SCORING_CRITERIA_KEY, "")
+            
+            # 创建改进提示词
+            prompt = f"""
+你是一位专业文案写手。请基于以下反馈，改进现有文稿：
+
+## 当前文稿
+{current_draft}
+
+## 评分反馈
+{feedback if feedback else "没有具体反馈，请对文稿进行一般性改进，使其更全面、更有深度。"}
+
+## 评分标准
+{criteria}
+
+请输出完整的改进后文稿，不要添加额外说明。
+"""
+            
+            # 生成备用改进内容
+            backup_improvement = "\n\n[添加备用改进内容]\n\n"
+            backup_improvement += "基于反馈进行的改进：\n"
+            backup_improvement += "- 更深入分析：增加了对AI写作工具实际应用场景的分析\n"
+            backup_improvement += "- 平衡观点：加强了对优缺点的平衡论述\n"
+            backup_improvement += "- 提高清晰度：优化了段落结构和表达方式\n"
+                
+            # 使用同步方法，避免异步生成器问题
+            def improve_content():
+                criteria = state_manager.get(INITIAL_SCORING_CRITERIA_KEY, "")
+                return generator.improve_draft_sync(current_draft, feedback if feedback else "", criteria)
+            
+            # 在同步上下文中执行，如果失败则使用备用内容
+            try:
+                logger.info("开始LLM改进文稿...")
+                
+                # 如果是实际的LLM客户端实例
+                if not isinstance(generator.model, str):
+                    result = improve_content()
+                    if result and not result.startswith(current_draft + "\n\n[文稿同步改进失败"):
+                        draft = result
+                        logger.info(f"LLM改进成功，得到{len(draft)}字符的内容")
+                    else:
+                        logger.warning("LLM改进失败，使用备用内容")
+                        draft = current_draft + backup_improvement
+                else:
+                    # 使用模拟内容作为LLM字符串模型的备用方案
+                    logger.warning(f"使用的是字符串模型名称({generator.model})，实际生成中会通过API调用，这里使用模拟内容")
+                    draft = current_draft + f"\n\n[使用备用改进内容 - 实际部署时将调用{generator.model}]\n\n"
+                    draft += "基于反馈进行的改进：\n"
+                    draft += "- 更深入分析：增加了对AI写作工具实际应用场景的分析\n"
+                    draft += "- 平衡观点：加强了对优缺点的平衡论述\n"
+                    draft += "- 提高清晰度：优化了段落结构和表达方式\n"
+            except Exception as e:
+                logger.error(f"改进文稿时发生错误: {e}", exc_info=True)
+                draft = current_draft + backup_improvement
+            
+            # 记录生成事件
+            log_generation_event("llm_draft_improved", draft, {
+                "iteration": iteration_count,
+                "previous_length": draft_metadata.get("length", 0),
+                "new_length": len(draft),
+                "feedback_applied": feedback is not None
+            })
+        
+        return draft
+    except Exception as e:
+        logger.error(f"LLM生成文稿失败: {e}", exc_info=True)
+        # 如果LLM生成失败，回退到模拟生成
+        logger.warning("回退到模拟生成内容")
+        return _generate_mock_content(state_manager, current_draft, feedback, iteration_count)
+
+
+def _generate_mock_content(
+    state_manager: StateManager,
+    current_draft: str = None,
+    feedback: str = None,
+    iteration_count: int = 0
+) -> str:
+    """
+    生成模拟文稿内容 (旧的实现，作为后备方案)
     
-    # 检查是首次撰写还是改进
-    current_draft = state.get(CURRENT_DRAFT_KEY)
-    feedback = state.get(CURRENT_FEEDBACK_KEY)
-    
+    Args:
+        state_manager: 状态管理器
+        current_draft: 当前文稿，如果为None则表示需要生成初始文稿
+        feedback: 当前反馈，用于改进文稿
+        iteration_count: 当前迭代次数
+        
+    Returns:
+        生成的文稿内容
+    """
     if not current_draft:
         # 首次撰写：基于初始素材和要求
-        material = state.get(INITIAL_MATERIAL_KEY, "")
-        requirements = state.get(INITIAL_REQUIREMENTS_KEY, "")
+        material = state_manager.get(INITIAL_MATERIAL_KEY, "")
+        requirements = state_manager.get(INITIAL_REQUIREMENTS_KEY, "")
         
-        logger.info(f"首次撰写文稿。素材: '{material[:50]}...' 要求: '{requirements[:50]}...'")
+        logger.info(f"模拟撰写初始文稿。素材和要求已加载。")
         
         # 简单模拟文稿生成
         draft = f"这是基于要求'{requirements[:30]}...'生成的初始文稿。\n\n"
@@ -70,9 +301,20 @@ def write_draft(tool_context: ToolContext) -> dict:
         draft += "1. 缺乏深度：生成内容有时缺乏深度和独特见解\n"
         draft += "2. 格式和风格限制：难以完全掌握特定领域的写作风格\n"
         draft += "3. 事实准确性问题：可能生成不准确或过时的信息\n"
+        
+        # 记录生成事件
+        log_generation_event("mock_draft_created", draft, {
+            "iteration": iteration_count,
+            "type": "initial_draft",
+            "material_length": len(material),
+            "requirements_length": len(requirements)
+        })
     else:
         # 基于反馈改进现有文稿
-        logger.info(f"正在改进文稿（迭代 {iteration_count + 1}）。反馈: '{feedback[:50]}...'")
+        logger.info(f"模拟改进文稿（迭代 {iteration_count}）。")
+        
+        # 获取文稿元数据，避免多次记录完整内容
+        draft_metadata = state_manager.get_draft_metadata()
         
         # 简单模拟文稿改进
         draft = current_draft
@@ -84,26 +326,16 @@ def write_draft(tool_context: ToolContext) -> dict:
             draft += "额外的AI写作工具缺点：\n"
             draft += "4. 创造力限制：难以产生真正创新的思想和表达\n"
             draft += "5. 伦理考量：使用AI生成内容可能涉及版权和原创性问题\n"
+        
+        # 记录生成事件
+        log_generation_event("mock_draft_improved", draft, {
+            "iteration": iteration_count,
+            "previous_length": draft_metadata.get("length", 0),
+            "new_length": len(draft),
+            "feedback_applied": feedback is not None
+        })
     
-    # 将生成的文稿保存到状态
-    state[CURRENT_DRAFT_KEY] = draft
-    
-    # 校验保存是否成功
-    if state.get(CURRENT_DRAFT_KEY) == draft:
-        logger.info(f"成功将文稿（{len(draft)}字符）保存到状态。")
-        # 返回摘要信息
-        return {
-            "status": "success",
-            "draft_summary": draft[:100] + "..." if len(draft) > 100 else draft,
-            "draft_length": len(draft),
-            "iteration": iteration_count + 1
-        }
-    else:
-        logger.error("文稿保存验证失败")
-        return {
-            "status": "error",
-            "message": "文稿保存失败，无法验证状态更新"
-        }
+    return draft
 
 
 def score_draft(tool_context: ToolContext) -> dict:
@@ -116,70 +348,85 @@ def score_draft(tool_context: ToolContext) -> dict:
     Returns:
         dict: 包含评分、反馈和状态信息的字典
     """
-    state = tool_context.state
-    
-    # 获取必要数据
-    draft = state.get(CURRENT_DRAFT_KEY)
-    criteria = state.get(INITIAL_SCORING_CRITERIA_KEY)
-    
-    if not draft:
-        logger.error(f"无法评分：状态中找不到文稿（键：{CURRENT_DRAFT_KEY}）")
+    try:
+        # 使用状态管理器
+        state_manager = StateManager(tool_context)
+        
+        # 获取必要数据
+        draft_metadata = state_manager.get_draft_metadata()
+        if not draft_metadata["exists"]:
+            logger.error(f"无法评分：状态中找不到文稿")
+            return {
+                "status": "error",
+                "message": "找不到要评分的文稿"
+            }
+        
+        # 获取完整文稿和评分标准
+        draft = state_manager.get(CURRENT_DRAFT_KEY)
+        criteria = state_manager.get(INITIAL_SCORING_CRITERIA_KEY, "清晰度、流畅性和内容相关性")
+        
+        logger.info(f"评分文稿（{len(draft)}字符）。使用评分标准。")
+        
+        # 模拟评分逻辑
+        # 根据文稿内容和评分标准计算得分
+        score = 7.0  # 基础分
+        
+        # 检查文稿是否包含评分标准中强调的点
+        if "清晰度" in criteria and len(draft) > 200:
+            score += 0.5  # 较长文稿可能更清晰
+        
+        if "优缺点" in criteria and "优点" in draft and "缺点" in draft:
+            score += 1.0  # 包含优缺点讨论
+        
+        if "AI写作工具" in draft and len(draft.split("AI写作工具")) > 3:
+            score += 0.5  # 多次提及关键主题
+        
+        # 最终分数限制在0-10范围内，四舍五入到1位小数
+        score = round(min(max(score, 0.0), 10.0), 1)
+        
+        # 生成反馈
+        feedback = f"模拟评分反馈: 基于标准 '{criteria}', 草稿得分为 {score}。"
+        if score < 8.5:
+            feedback += "需要更多针对AI写作工具优缺点的内容。"
+        
+        # 记录评分事件
+        log_generation_event("score_calculated", {
+            "score": score,
+            "feedback": feedback
+        }, {
+            "draft_length": len(draft),
+            "criteria_used": criteria
+        })
+        
+        # 将评分和反馈保存到状态
+        update_results = state_manager.update({
+            CURRENT_SCORE_KEY: score,
+            CURRENT_FEEDBACK_KEY: feedback
+        })
+        
+        if all(update_results.values()):
+            logger.info(f"成功将评分（{score}）和反馈保存到状态。")
+        else:
+            failed_keys = [k for k, v in update_results.items() if not v]
+            logger.error(f"评分/反馈保存失败。失败的键: {failed_keys}")
+            return {
+                "status": "error",
+                "message": f"评分结果保存失败，以下键无法更新: {failed_keys}"
+            }
+        
+        threshold = state_manager.get(SCORE_THRESHOLD_KEY, 8.5)
+        return {
+            "status": "success",
+            "score": score,
+            "feedback": feedback,
+            "meets_threshold": score >= threshold
+        }
+    except Exception as e:
+        logger.error(f"score_draft工具执行失败: {e}", exc_info=True)
         return {
             "status": "error",
-            "message": "找不到要评分的文稿"
+            "message": f"评分文稿时发生错误: {str(e)}"
         }
-    
-    if not criteria:
-        logger.warning(f"未指定评分标准（键：{INITIAL_SCORING_CRITERIA_KEY}），使用默认标准")
-        criteria = "清晰度、流畅性和内容相关性"
-    
-    logger.info(f"评分文稿（{len(draft)}字符）。标准: '{criteria[:50]}...'")
-    
-    # 模拟评分逻辑
-    # 根据文稿内容和评分标准计算得分
-    score = 7.0  # 基础分
-    
-    # 检查文稿是否包含评分标准中强调的点
-    if "清晰度" in criteria and len(draft) > 200:
-        score += 0.5  # 较长文稿可能更清晰
-    
-    if "优缺点" in criteria and "优点" in draft and "缺点" in draft:
-        score += 1.0  # 包含优缺点讨论
-    
-    if "AI写作工具" in draft and len(draft.split("AI写作工具")) > 3:
-        score += 0.5  # 多次提及关键主题
-    
-    # 最终分数限制在0-10范围内，四舍五入到1位小数
-    score = round(min(max(score, 0.0), 10.0), 1)
-    
-    # 生成反馈
-    feedback = f"模拟评分反馈: 基于标准 '{criteria}', 草稿得分为 {score}。"
-    if score < 8.5:
-        feedback += "需要更多针对AI写作工具优缺点的内容。"
-    
-    # 将评分和反馈保存到状态
-    state[CURRENT_SCORE_KEY] = score
-    state[CURRENT_FEEDBACK_KEY] = feedback
-    
-    # 验证保存成功
-    saved_score = state.get(CURRENT_SCORE_KEY)
-    saved_feedback = state.get(CURRENT_FEEDBACK_KEY)
-    
-    if saved_score == score and saved_feedback == feedback:
-        logger.info(f"成功将评分（{score}）和反馈保存到状态。")
-    else:
-        logger.error(f"分数/反馈保存验证失败。预期分数：{score}，获取到：{saved_score}")
-        return {
-            "status": "error",
-            "message": "评分结果保存失败，无法验证状态更新"
-        }
-    
-    return {
-        "status": "success",
-        "score": score,
-        "feedback": feedback,
-        "meets_threshold": score >= state.get(SCORE_THRESHOLD_KEY, 8.5)
-    }
 
 
 def check_progress(tool_context: ToolContext) -> dict:
@@ -196,12 +443,13 @@ def check_progress(tool_context: ToolContext) -> dict:
     Returns:
         dict: 包含进度状态和决策信息的字典
     """
-    state = tool_context.state
+    # 使用状态管理器
+    state_manager = StateManager(tool_context)
     
     # 获取关键数据
-    score = state.get(CURRENT_SCORE_KEY)
-    threshold = state.get(SCORE_THRESHOLD_KEY, 8.5)
-    iteration = state.get(ITERATION_COUNT_KEY, 0)
+    score = state_manager.get(CURRENT_SCORE_KEY)
+    threshold = state_manager.get(SCORE_THRESHOLD_KEY, 8.5)
+    iteration = state_manager.get(ITERATION_COUNT_KEY, 0)
     
     logger.info(f"检查进度：迭代={iteration}，分数={score}，阈值={threshold}")
     
@@ -222,8 +470,18 @@ def check_progress(tool_context: ToolContext) -> dict:
         reason = "无法找到评分结果，无法继续"
         logger.warning(f"终止迭代：{reason}")
     
+    # 记录进度检查事件
+    log_generation_event("progress_checked", {
+        "should_continue": should_continue,
+        "reason": reason
+    }, {
+        "iteration": iteration,
+        "score": score,
+        "threshold": threshold
+    })
+    
     # 更新完成状态
-    state[IS_COMPLETE_KEY] = not should_continue
+    state_manager.set(IS_COMPLETE_KEY, not should_continue)
     
     return {
         "status": "success",
