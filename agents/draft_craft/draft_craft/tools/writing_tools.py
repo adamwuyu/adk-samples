@@ -460,12 +460,6 @@ def check_progress(tool_context: ToolContext) -> dict:
     threshold = state_manager.get(SCORE_THRESHOLD_KEY, 8.5)
     iteration = state_manager.get(ITERATION_COUNT_KEY, 0)
     
-    # 确保迭代计数存在（即使是0）
-    if iteration is None:
-        iteration = 0
-        logger.warning(f"迭代计数缺失，强制设置为0")
-        state_manager.set(ITERATION_COUNT_KEY, iteration)
-    
     logger.info(f"检查进度：迭代={iteration}，分数={score}，阈值={threshold}")
     
     # 根据条件判断是否完成

@@ -95,24 +95,34 @@ async def run_agent_and_get_final_response(query, runner, user_id, session_id):
             session_id=session_id
         ):
             all_events.append(event)
-            # 打印事件信息以便调试
-            print(f"Event author: {event.author}")
+            # 打印更详细的事件信息
+            print(f"\n>>> 事件 #{len(all_events)}")
+            print(f"事件作者: {event.author}")
             
-            # 检查是否有函数调用
+            # 更详细地检查事件内容
             if event.content and event.content.parts:
-                for part in event.content.parts:
+                for part_index, part in enumerate(event.content.parts):
+                    print(f"  部分 #{part_index+1}:")
                     if part.function_call:
                         tool_id = getattr(part.function_call, 'id', None)
                         if tool_id:
                             tool_call_ids.add(tool_id)
-                        print(f">>> Tool Call: {part.function_call.name} (ID: {tool_id})")
+                        print(f"    工具调用: {part.function_call.name} (ID: {tool_id})")
+                        print(f"    参数: {getattr(part.function_call, 'args', {})}")
                     elif part.function_response:
                         tool_id = getattr(part.function_response, 'id', None)
                         if tool_id:
                             tool_response_ids.add(tool_id)
-                        print(f">>> Tool Response received (ID: {tool_id})")
+                        resp_str = str(getattr(part.function_response, 'response', ''))
+                        if len(resp_str) > 50:
+                            resp_str = resp_str[:50] + "..."
+                        print(f"    工具响应 (ID: {tool_id}): {resp_str}")
                     elif part.text:
-                        print(f">>> Text Content: {part.text[:100]}...")
+                        text_preview = part.text[:100] + "..." if len(part.text) > 100 else part.text
+                        print(f"    文本内容: {text_preview}")
+                        print(f"    文本长度: {len(part.text)}字符")
+            else:
+                print("  [事件没有内容]")
         
         # 比较工具调用和响应ID，检测是否所有调用都有对应的响应
         missing_responses = tool_call_ids - tool_response_ids

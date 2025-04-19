@@ -1,4 +1,4 @@
-"""LLM工具集，提供标准的LLM调用工具，符合ADK架构。"""
+"""扁平架构ADK中的LLM工具集实现。"""
 
 import logging
 import os
@@ -8,7 +8,7 @@ from google.adk.tools.tool_context import ToolContext
 from .state_manager import (
     StateManager, INITIAL_MATERIAL_KEY, INITIAL_REQUIREMENTS_KEY, 
     INITIAL_SCORING_CRITERIA_KEY, CURRENT_DRAFT_KEY, CURRENT_SCORE_KEY,
-    CURRENT_FEEDBACK_KEY, ITERATION_COUNT_KEY
+    CURRENT_FEEDBACK_KEY, ITERATION_COUNT_KEY, SCORE_THRESHOLD_KEY, IS_COMPLETE_KEY
 )
 from .logging_utils import log_generation_event
 
@@ -169,29 +169,59 @@ def save_draft_result(content: str, tool_context: ToolContext) -> Dict[str, Any]
         dict: 包含操作状态和文稿摘要的字典
     """
     logger.info("保存LLM生成的文稿内容...")
+    logger.info(f"接收到的文稿内容摘要: {content[:100]}..., 长度: {len(content)}")
+    logger.info(f"Tool Context 状态对象是否存在: {tool_context.state is not None}")
+    logger.info(f"Tool Context 状态类型: {type(tool_context.state)}")
+    logger.info(f"Tool Context 状态内容: {str(tool_context.state)[:200]}...")
     
     try:
         # 使用状态管理器
         state_manager = StateManager(tool_context)
+        logger.info(f"StateManager初始化完成，状态对象: {state_manager.state is not None}")
         
         # 获取当前迭代计数
         iteration_count = state_manager.get(ITERATION_COUNT_KEY, 0)
         
-        # 更新迭代计数
-        new_iteration_count = iteration_count + 1
-        state_manager.set(ITERATION_COUNT_KEY, new_iteration_count)
-        logger.info(f"更新迭代计数: {iteration_count} -> {new_iteration_count}")
-        
         # 保存文稿内容
-        if state_manager.store_draft_efficiently(content):
+        save_result = state_manager.store_draft_efficiently(content)
+        logger.info(f"文稿保存结果: {save_result}")
+        
+        # 再次检查保存是否成功
+        current_draft = state_manager.get(CURRENT_DRAFT_KEY)
+        if not current_draft:
+            # 备用保存方式：直接使用工具上下文保存
+            logger.warning("使用StateManager保存失败，尝试备用直接保存方式")
+            tool_context.state[CURRENT_DRAFT_KEY] = content
+            if CURRENT_DRAFT_KEY in tool_context.state:
+                logger.info("备用保存成功")
+                save_result = True
+                
+                # 确保设置迭代计数
+                if ITERATION_COUNT_KEY not in tool_context.state:
+                    logger.info("设置初始迭代计数")
+                    tool_context.state[ITERATION_COUNT_KEY] = 1
+                    
+                # 更新迭代计数引用
+                iteration_count = tool_context.state.get(ITERATION_COUNT_KEY, 1)
+        
+        if save_result:
             logger.info(f"成功将文稿（{len(content)}字符）保存到状态。")
+            
+            # 再次检查保存是否成功
+            saved_draft = None
+            if state_manager.state.get(CURRENT_DRAFT_KEY):
+                saved_draft = state_manager.state.get(CURRENT_DRAFT_KEY)
+            elif tool_context.state.get(CURRENT_DRAFT_KEY):
+                saved_draft = tool_context.state.get(CURRENT_DRAFT_KEY)
+                
+            logger.info(f"验证保存: 保存后的文稿长度 = {len(saved_draft) if saved_draft else 0}")
             
             # 记录生成事件
             log_generation_event("draft_saved", {
                 "preview": content[:100] + "..." if len(content) > 100 else content
             }, {
                 "length": len(content),
-                "iteration": new_iteration_count
+                "iteration": iteration_count
             })
             
             # 返回摘要信息
@@ -199,7 +229,7 @@ def save_draft_result(content: str, tool_context: ToolContext) -> Dict[str, Any]
                 "status": "success",
                 "draft_summary": content[:100] + "..." if len(content) > 100 else content,
                 "draft_length": len(content),
-                "iteration": new_iteration_count
+                "iteration": iteration_count
             }
         else:
             logger.error("文稿保存失败")
@@ -209,6 +239,25 @@ def save_draft_result(content: str, tool_context: ToolContext) -> Dict[str, Any]
             }
     except Exception as e:
         logger.error(f"save_draft_result工具执行失败: {e}", exc_info=True)
+        
+        # 出现异常时的备用保存机制
+        try:
+            logger.warning("尝试在异常处理中直接保存文稿")
+            tool_context.state[CURRENT_DRAFT_KEY] = content
+            tool_context.state[ITERATION_COUNT_KEY] = tool_context.state.get(ITERATION_COUNT_KEY, 0) + 1
+            
+            if CURRENT_DRAFT_KEY in tool_context.state:
+                logger.info("异常处理中的备用保存成功")
+                return {
+                    "status": "success",
+                    "draft_summary": content[:100] + "..." if len(content) > 100 else content,
+                    "draft_length": len(content),
+                    "iteration": tool_context.state.get(ITERATION_COUNT_KEY, 1),
+                    "note": "通过异常处理的备用机制保存"
+                }
+        except Exception as backup_error:
+            logger.error(f"备用保存也失败: {backup_error}")
+            
         return {
             "status": "error",
             "message": f"保存文稿失败: {str(e)}"
@@ -345,6 +394,8 @@ def save_scoring_result(score: float, feedback: str, tool_context: ToolContext) 
         dict: 包含操作状态和评分信息的字典
     """
     logger.info("保存LLM生成的评分结果...")
+    logger.info(f"接收到的评分: {score}, 反馈长度: {len(feedback)}")
+    logger.info(f"Tool Context 状态对象是否存在: {tool_context.state is not None}")
     
     try:
         # 使用状态管理器
@@ -358,49 +409,108 @@ def save_scoring_result(score: float, feedback: str, tool_context: ToolContext) 
             }
         
         # 四舍五入到1位小数
-        score = round(float(score), 1)
+        rounded_score = round(float(score), 1)
         
-        # 获取当前迭代计数
-        iteration_count = state_manager.get(ITERATION_COUNT_KEY, 0)
-        logger.info(f"当前迭代计数: {iteration_count}")
-        
-        # 保存评分和反馈
-        update_results = state_manager.update({
-            CURRENT_SCORE_KEY: score,
+        # 保存结果
+        keys_to_update = {
+            CURRENT_SCORE_KEY: rounded_score,
             CURRENT_FEEDBACK_KEY: feedback
-        })
+        }
         
-        if all(update_results.values()):
-            logger.info(f"成功将评分({score})和反馈保存到状态。")
-            
-            # 记录评分事件
+        # 获取当前分数阈值，如果没有则使用默认值
+        score_threshold = state_manager.get(SCORE_THRESHOLD_KEY, 8.0)
+        
+        # 判断是否达到完成标准
+        is_complete = rounded_score >= score_threshold
+        keys_to_update[IS_COMPLETE_KEY] = is_complete
+        
+        # 批量更新
+        update_results = state_manager.update(keys_to_update)
+        
+        # 检查更新结果
+        update_success = all(update_results.values())
+        
+        # 备用保存：如果状态管理器更新失败，直接使用tool_context.state保存
+        if not update_success:
+            logger.warning("通过StateManager保存失败，尝试备用保存方式")
+            try:
+                # 直接保存到state
+                tool_context.state[CURRENT_SCORE_KEY] = rounded_score
+                tool_context.state[CURRENT_FEEDBACK_KEY] = feedback
+                tool_context.state[IS_COMPLETE_KEY] = is_complete
+                
+                # 验证保存
+                if (CURRENT_SCORE_KEY in tool_context.state and 
+                    CURRENT_FEEDBACK_KEY in tool_context.state and 
+                    IS_COMPLETE_KEY in tool_context.state):
+                    logger.info("备用保存成功")
+                    update_success = True
+            except Exception as backup_error:
+                logger.error(f"备用保存失败: {backup_error}")
+        
+        if update_success:
+            # 记录评分结果
             log_generation_event("scoring_saved", {
-                "score": score,
-                "feedback_preview": feedback[:100] + "..." if len(feedback) > 100 else feedback
+                "score": rounded_score,
+                "feedback": feedback[:100] + "..." if len(feedback) > 100 else feedback
             }, {
-                "feedback_length": len(feedback),
-                "iteration": iteration_count
+                "is_complete": is_complete,
+                "threshold": score_threshold
             })
             
-            # 返回评分信息
             return {
                 "status": "success",
-                "score": score,
-                "feedback_summary": feedback[:100] + "..." if len(feedback) > 100 else feedback,
-                "iteration": iteration_count
+                "score": rounded_score,
+                "feedback_preview": feedback[:100] + "..." if len(feedback) > 100 else feedback,
+                "is_complete": is_complete,
+                "score_threshold": score_threshold
             }
         else:
-            failed_keys = [k for k, v in update_results.items() if not v]
-            logger.error(f"评分/反馈保存失败。失败的键: {failed_keys}")
+            # 每个失败的键
+            failed_keys = [key for key, success in update_results.items() if not success]
+            error_msg = f"保存失败的键: {', '.join(failed_keys)}"
+            logger.error(error_msg)
             return {
                 "status": "error",
-                "message": f"评分结果保存失败: {failed_keys}"
+                "message": error_msg
             }
     except Exception as e:
         logger.error(f"save_scoring_result工具执行失败: {e}", exc_info=True)
+        
+        # 出现异常时的备用保存机制
+        try:
+            logger.warning("尝试在异常处理中直接保存评分结果")
+            # 四舍五入到1位小数
+            rounded_score = round(float(score), 1)
+            
+            # 直接保存到状态
+            tool_context.state[CURRENT_SCORE_KEY] = rounded_score
+            tool_context.state[CURRENT_FEEDBACK_KEY] = feedback
+            
+            # 获取当前分数阈值，如果没有则使用默认值
+            score_threshold = tool_context.state.get(SCORE_THRESHOLD_KEY, 8.0)
+            
+            # 判断是否达到完成标准
+            is_complete = rounded_score >= score_threshold
+            tool_context.state[IS_COMPLETE_KEY] = is_complete
+            
+            if (CURRENT_SCORE_KEY in tool_context.state and 
+                CURRENT_FEEDBACK_KEY in tool_context.state):
+                logger.info("异常处理中的备用保存成功")
+                return {
+                    "status": "success",
+                    "score": rounded_score,
+                    "feedback_preview": feedback[:100] + "..." if len(feedback) > 100 else feedback,
+                    "is_complete": is_complete,
+                    "score_threshold": score_threshold,
+                    "note": "通过异常处理的备用机制保存"
+                }
+        except Exception as backup_error:
+            logger.error(f"备用保存也失败: {backup_error}")
+        
         return {
             "status": "error",
-            "message": f"保存评分失败: {str(e)}"
+            "message": f"保存评分结果失败: {str(e)}"
         }
 
 def _get_backup_draft() -> str:
