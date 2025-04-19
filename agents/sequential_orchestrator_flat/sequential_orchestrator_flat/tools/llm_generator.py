@@ -156,9 +156,26 @@ class LlmContentGenerator:
                 response = "由于当前使用字符串模型配置，无法进行异步调用。请在实际使用时提供完整的LLM实例。"
                 logger.warning("使用了字符串模型名称，无法执行实际生成。这是一个占位实现。")
             else:
-                # 使用配置好的LiteLlm实例
-                response = await self.model.generate_content_async(prompt)
-                response = response.text if hasattr(response, 'text') else str(response)
+                # 使用配置好的LiteLlm实例 - 使用OpenAI风格API (异步版)
+                try:
+                    # 尝试使用create_async (如果存在)
+                    response = await self.model.chat.completions.create_async(
+                        messages=[
+                            {"role": "user", "content": prompt}
+                        ]
+                    )
+                except AttributeError:
+                    # 如果不存在异步方法，退回到使用同步方法
+                    logger.warning("LiteLLM对象未提供异步方法，回退到同步调用")
+                    response = self.model.chat.completions.create(
+                        messages=[
+                            {"role": "user", "content": prompt}
+                        ]
+                    )
+                
+                # 从标准格式中提取文本内容
+                response_text = response.choices[0].message.content if hasattr(response, 'choices') else str(response)
+                response = response_text
             
             logger.info(f"成功生成初始文稿，长度: {len(response)}字符")
             return response
@@ -197,9 +214,15 @@ class LlmContentGenerator:
                 response = f"由于当前使用字符串模型配置({self.model})，无法进行同步调用。请在实际使用时提供完整的LLM实例。"
                 logger.warning(f"使用了字符串模型名称({self.model})，无法执行实际生成。这是一个占位实现。")
             else:
-                # 使用配置好的LiteLlm实例，但调用同步API
-                response = self.model.generate_content(prompt)
-                response = response.text if hasattr(response, 'text') else str(response)
+                # 使用配置好的LiteLlm实例，但调用同步API - 使用OpenAI风格API
+                response = self.model.chat.completions.create(
+                    messages=[
+                        {"role": "user", "content": prompt}
+                    ]
+                )
+                # 从标准格式中提取文本内容
+                response_text = response.choices[0].message.content if hasattr(response, 'choices') else str(response)
+                response = response_text
             
             logger.info(f"成功生成初始文稿，长度: {len(response)}字符")
             return response
@@ -238,9 +261,26 @@ class LlmContentGenerator:
                 response = current_draft + "\n\n[此处为改进内容的占位符 - 实际使用时会替换为真实生成内容]"
                 logger.warning("使用了字符串模型名称，无法执行实际生成。返回占位内容。")
             else:
-                # 使用配置好的LiteLlm实例
-                response = await self.model.generate_content_async(prompt)
-                response = response.text if hasattr(response, 'text') else str(response)
+                # 使用配置好的LiteLlm实例 - 使用OpenAI风格API (异步版)
+                try:
+                    # 尝试使用create_async (如果存在)
+                    response = await self.model.chat.completions.create_async(
+                        messages=[
+                            {"role": "user", "content": prompt}
+                        ]
+                    )
+                except AttributeError:
+                    # 如果不存在异步方法，退回到使用同步方法
+                    logger.warning("LiteLLM对象未提供异步方法，回退到同步调用")
+                    response = self.model.chat.completions.create(
+                        messages=[
+                            {"role": "user", "content": prompt}
+                        ]
+                    )
+                
+                # 从标准格式中提取文本内容
+                response_text = response.choices[0].message.content if hasattr(response, 'choices') else str(response)
+                response = response_text
             
             logger.info(f"成功改进文稿，新长度: {len(response)}字符")
             return response
@@ -279,9 +319,15 @@ class LlmContentGenerator:
                 response = current_draft + f"\n\n[此处为改进内容的占位符 - 实际使用时会通过{self.model}替换为真实生成内容]"
                 logger.warning(f"使用了字符串模型名称({self.model})，无法执行实际生成。返回占位内容。")
             else:
-                # 使用配置好的LiteLlm实例，但调用同步API
-                response = self.model.generate_content(prompt)
-                response = response.text if hasattr(response, 'text') else str(response)
+                # 使用配置好的LiteLlm实例，使用OpenAI风格API
+                response = self.model.chat.completions.create(
+                    messages=[
+                        {"role": "user", "content": prompt}
+                    ]
+                )
+                # 从标准格式中提取文本内容
+                response_text = response.choices[0].message.content if hasattr(response, 'choices') else str(response)
+                response = response_text
             
             logger.info(f"成功改进文稿，新长度: {len(response)}字符")
             return response

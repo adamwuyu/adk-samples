@@ -27,6 +27,7 @@ from .state_manager import (
 )
 from .logging_utils import log_generation_event
 from .llm_generator import get_content_generator
+from .fix_llm import safely_run_async  # 重新添加，以便在需要时处理异步调用
 
 logger = logging.getLogger(__name__)
 
@@ -159,7 +160,11 @@ def _generate_with_llm(
                 material = state_manager.get(INITIAL_MATERIAL_KEY, "")
                 requirements = state_manager.get(INITIAL_REQUIREMENTS_KEY, "")
                 criteria = state_manager.get(INITIAL_SCORING_CRITERIA_KEY, "")
-                return generator.generate_initial_draft_sync(material, requirements, criteria)
+                try:
+                    return generator.generate_initial_draft_sync(material, requirements, criteria)
+                except Exception as e:
+                    logger.error(f"同步生成初始文稿出错: {e}", exc_info=True)
+                    return None
             
             # 在同步上下文中执行，如果失败则使用备用内容
             try:
@@ -168,11 +173,11 @@ def _generate_with_llm(
                 # 如果是实际的LLM客户端实例
                 if not isinstance(generator.model, str):
                     result = generate_content()
-                    if result and not result.startswith("生成文稿失败"):
+                    if result and not result.startswith("生成文稿失败") and not "error" in result.lower():
                         draft = result
                         logger.info(f"LLM生成成功，得到{len(draft)}字符的内容")
                     else:
-                        logger.warning("LLM生成失败，使用备用内容")
+                        logger.warning("LLM生成失败或返回错误信息，使用备用内容")
                         draft = backup_draft
                 else:
                     # 使用模拟内容作为LLM字符串模型的备用方案
@@ -223,7 +228,11 @@ def _generate_with_llm(
             # 使用同步方法，避免异步生成器问题
             def improve_content():
                 criteria = state_manager.get(INITIAL_SCORING_CRITERIA_KEY, "")
-                return generator.improve_draft_sync(current_draft, feedback if feedback else "", criteria)
+                try:
+                    return generator.improve_draft_sync(current_draft, feedback if feedback else "", criteria)
+                except Exception as e:
+                    logger.error(f"同步改进文稿出错: {e}", exc_info=True)
+                    return None
             
             # 在同步上下文中执行，如果失败则使用备用内容
             try:
@@ -232,11 +241,11 @@ def _generate_with_llm(
                 # 如果是实际的LLM客户端实例
                 if not isinstance(generator.model, str):
                     result = improve_content()
-                    if result and not result.startswith(current_draft + "\n\n[文稿同步改进失败"):
+                    if result and not (result.startswith(current_draft + "\n\n[文稿同步改进失败") or "error" in result.lower()):
                         draft = result
                         logger.info(f"LLM改进成功，得到{len(draft)}字符的内容")
                     else:
-                        logger.warning("LLM改进失败，使用备用内容")
+                        logger.warning("LLM改进失败或返回错误信息，使用备用内容")
                         draft = current_draft + backup_improvement
                 else:
                     # 使用模拟内容作为LLM字符串模型的备用方案
@@ -491,4 +500,23 @@ def check_progress(tool_context: ToolContext) -> dict:
         "iteration": iteration,
         "score": score,
         "threshold": threshold
-    } 
+    }
+
+
+def _safely_call_async_api(async_func, fallback_value, *args, **kwargs):
+    """
+    安全地调用异步API，如果可能的话使用safely_run_async
+    
+    Args:
+        async_func: 要调用的异步函数
+        fallback_value: 失败时返回的值
+        *args, **kwargs: 传递给异步函数的参数
+        
+    Returns:
+        异步函数的结果，或失败时的备用值
+    """
+    try:
+        return safely_run_async(async_func, fallback_value, *args, **kwargs)
+    except Exception as e:
+        logger.error(f"异步调用失败: {e}", exc_info=True)
+        return fallback_value 
