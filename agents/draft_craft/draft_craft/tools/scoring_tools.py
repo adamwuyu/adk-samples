@@ -1,12 +1,48 @@
 from google.adk.tools import FunctionTool
-from typing import Dict, List
+from typing import Dict, List, Any, Optional
+import logging
+import re
+from google.adk.tools.tool_context import ToolContext
+
+from .logging_utils import log_generation_event
+from .state_manager import (
+    StateManager, CURRENT_SCORE_KEY, CURRENT_FEEDBACK_KEY, 
+    IS_COMPLETE_KEY, SCORE_THRESHOLD_KEY
+)
+
+# 配置日志
+logger = logging.getLogger(__name__)
 
 # 评分工具：面向"中等家长"受众
+
+# 评分提示词模板
+PARENTS_SCORING_PROMPT_TEMPLATE = """
+你现在要扮演一位中等受教育水平、经济中等以上的家长，孩子处于小学高年级至高中一年级阶段。
+请基于下面提供的受众画像和评分标准，对文稿内容进行评估和反馈。
+
+## 受众画像描述
+{audience_profile}
+
+## 评分标准
+{scoring_criteria}
+
+## 待评文稿
+{draft_content}
+
+请按照以下格式进行评估：
+
+1. 给出一个0-100分的总体评分（仅一个整数）。
+2. 提供200-300字的详细评价和具体建议，着重指出文稿的优点和需要改进的地方。
+3. 列出2-3个关键问题或改进点（如果有的话），每条一行，以"-"开头。
+
+你的评分和反馈必须从目标家长的视角出发，考虑他们的关注点、语言偏好和价值观。
+"""
 
 def score_for_parents(
     draft_content: str,
     audience_profile: str,
-    scoring_criteria: str
+    scoring_criteria: str,
+    tool_context: Optional[ToolContext] = None
 ) -> Dict:
     """
     针对中等受教育水平、经济中等以上的家长（孩子小学高年级至高一），
@@ -21,29 +57,174 @@ def score_for_parents(
       - feedback: str，详细反馈
       - key_issues: list[str]，关键问题列表，便于后续自动分析
     """
-    # TODO: 这里应调用LLM，构造Prompt，解析LLM输出。当前为TDD占位实现。
+    # 日志记录
+    logger.info(f"开始对文稿进行评分，文稿长度: {len(draft_content)}")
+    
+    # 保留特殊情况的快速返回逻辑
     if not draft_content.strip():
+        logger.warning("文稿内容为空，直接返回低分结果")
         return {
             "score": 0,
             "feedback": "内容为空，请补充文稿内容。",
             "key_issues": ["内容为空"]
         }
-    if "天气" in draft_content:
-        return {
-            "score": 30,
-            "feedback": "内容不相关，未涉及家长关心的话题，也未涉及教育、亲子、成长等核心要素。",
-            "key_issues": ["内容不相关"]
-        }
-    if "专家建议" in draft_content and "案例" in draft_content:
-        return {
-            "score": 90,
-            "feedback": "内容高度贴合家长关心的问题，结构清晰，建议具体，具有较强的可操作性。",
-            "key_issues": []
-        }
+        
+    # 构建提示词
+    prompt = PARENTS_SCORING_PROMPT_TEMPLATE.format(
+        audience_profile=audience_profile,
+        scoring_criteria=scoring_criteria,
+        draft_content=draft_content
+    )
+    
+    # 如果提供了工具上下文，记录评分事件
+    if tool_context:
+        log_generation_event("scoring_prompt_generated", {
+            "prompt_preview": prompt[:100] + "...",
+            "draft_length": len(draft_content)
+        }, {
+            "audience_type": "parents"
+        })
+    
+    # 返回提示词，供Agent处理
     return {
-        "score": 60,
-        "feedback": "内容基本相关，但建议补充更多实际案例和具体做法。",
-        "key_issues": ["缺少案例"]
+        "status": "llm_prompt_ready",
+        "prompt": prompt,
+        "audience_type": "parents"
     }
 
-score_for_parents_tool = FunctionTool(func=score_for_parents) 
+def parse_scoring_result(llm_output: str) -> Dict[str, Any]:
+    """
+    解析LLM生成的评分结果，提取分数、反馈和关键问题
+    
+    Args:
+        llm_output: LLM生成的评分输出
+        
+    Returns:
+        字典，包含解析后的score、feedback和key_issues
+    """
+    logger.info("开始解析评分结果...")
+    logger.info(f"LLM输出内容摘要: {llm_output[:100]}..., 长度: {len(llm_output)}")
+    
+    # 默认结果
+    result = {
+        "score": 60,  # 默认中等分数
+        "feedback": llm_output,  # 默认使用全部输出作为反馈
+        "key_issues": []  # 默认无关键问题
+    }
+    
+    try:
+        # 匹配分数 (尝试在文本中找到0-100之间的整数)
+        score_match = re.search(r'(?:^|\D)(\d{1,3})(?:\D|$)', llm_output)
+        if score_match:
+            score = int(score_match.group(1))
+            if 0 <= score <= 100:
+                result["score"] = score
+                logger.info(f"解析到分数: {score}")
+        
+        # 提取关键问题 (尝试匹配"-"开头的列表项)
+        key_issues = []
+        for line in llm_output.split('\n'):
+            line = line.strip()
+            if line.startswith('-') or line.startswith('- '):
+                issue = line.lstrip('- ').strip()
+                if issue and len(issue) > 5:  # 确保不是空行或过短的内容
+                    key_issues.append(issue)
+        
+        if key_issues:
+            result["key_issues"] = key_issues
+            logger.info(f"解析到{len(key_issues)}个关键问题")
+        
+        # 提取反馈 (使用除了明确的分数和关键问题列表外的内容)
+        # 这是个简化处理，实际中可能需要更复杂的逻辑
+        if score_match:
+            feedback_text = llm_output
+            # 从反馈中排除可能的分数行
+            score_line_match = re.search(r'^.*?\b\d{1,3}\b.*?$', llm_output, re.MULTILINE)
+            if score_line_match:
+                score_line = score_line_match.group(0)
+                feedback_text = feedback_text.replace(score_line, '', 1).strip()
+            
+            result["feedback"] = feedback_text
+            logger.info(f"提取的反馈长度: {len(feedback_text)}")
+    
+    except Exception as e:
+        logger.error(f"解析评分结果出错: {e}", exc_info=True)
+        # 出错时保留默认结果
+    
+    return result
+
+def save_parents_scoring_result(
+    llm_output: str,
+    tool_context: ToolContext
+) -> Dict[str, Any]:
+    """
+    解析并保存LLM生成的评分结果到状态
+    
+    此工具负责从LLM输出中提取评分、反馈和关键问题，
+    并将结果保存到会话状态中
+    
+    Args:
+        llm_output: LLM生成的评分输出
+        tool_context: ADK工具上下文，用于访问会话状态
+        
+    Returns:
+        dict: 包含操作状态和评分摘要的字典
+    """
+    logger.info("开始保存家长视角评分结果...")
+    logger.info(f"LLM输出内容摘要: {llm_output[:100]}..., 长度: {len(llm_output)}")
+    
+    try:
+        # 解析LLM输出
+        parsed_result = parse_scoring_result(llm_output)
+        score = parsed_result["score"]
+        feedback = parsed_result["feedback"]
+        key_issues = parsed_result["key_issues"]
+        
+        logger.info(f"解析结果 - 分数: {score}, 反馈长度: {len(feedback)}, 问题数量: {len(key_issues)}")
+        
+        # 使用状态管理器
+        state_manager = StateManager(tool_context)
+        
+        # 保存评分结果
+        state_manager.set(CURRENT_SCORE_KEY, float(score))
+        state_manager.set(CURRENT_FEEDBACK_KEY, feedback)
+        
+        # 获取分数阈值
+        score_threshold = state_manager.get(SCORE_THRESHOLD_KEY, 80.0)
+        
+        # 确定是否完成
+        is_complete = score >= score_threshold
+        if is_complete:
+            logger.info(f"分数 {score} 已达到或超过阈值 {score_threshold}，标记为完成")
+            state_manager.set(IS_COMPLETE_KEY, True)
+        
+        # 记录评分事件
+        log_generation_event("scoring_saved", {
+            "score": score,
+            "feedback_preview": feedback[:100] + "..." if len(feedback) > 100 else feedback,
+        }, {
+            "key_issues_count": len(key_issues),
+            "is_complete": is_complete,
+            "threshold": score_threshold
+        })
+        
+        # 返回摘要信息
+        return {
+            "status": "success",
+            "score": score,
+            "feedback_summary": feedback[:100] + "..." if len(feedback) > 100 else feedback,
+            "key_issues": key_issues,
+            "is_complete": is_complete,
+            "threshold": score_threshold
+        }
+    
+    except Exception as e:
+        logger.error(f"保存评分结果失败: {e}", exc_info=True)
+        return {
+            "status": "error",
+            "message": f"保存评分结果失败: {str(e)}"
+        }
+
+# 注册工具
+score_for_parents_tool = FunctionTool(func=score_for_parents)
+save_parents_scoring_result_tool = FunctionTool(func=save_parents_scoring_result) 

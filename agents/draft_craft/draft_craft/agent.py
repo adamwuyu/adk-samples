@@ -35,6 +35,11 @@ from .tools.llm_tools import (
     generate_draft_scoring,
     save_scoring_result
 )
+# 导入新的评分工具
+from .tools.scoring_tools import (
+    score_for_parents_tool,
+    save_parents_scoring_result_tool
+)
 
 logger = logging.getLogger(__name__)
 
@@ -114,6 +119,10 @@ root_agent = Agent(
         # V0.9: 新版LLM评分工具 - 符合ADK标准架构
         FunctionTool(func=generate_draft_scoring),
         FunctionTool(func=save_scoring_result),
+        
+        # V1.0: 针对中等家长受众的评分工具
+        score_for_parents_tool,
+        save_parents_scoring_result_tool,
         
         # 流程控制工具
         FunctionTool(func=check_progress),
