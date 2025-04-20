@@ -1,0 +1,20 @@
+---
+description: Command for testing
+globs: 
+alwaysApply: false
+---
+
+# 测试命令：
+
+## 基于LLM实时生成内容的集成测试
+conda activate adk && cd /Users/adam/adk/adk-samples/agents/draft_craft && python draft_craft/tests/run_flat_test.py --use-llm
+
+## 基于dummy内容的集成测试
+conda activate adk && cd /Users/adam/adk/adk-samples/agents/draft_craft && python draft_craft/tests/run_flat_test.py
+
+## 在Web UI中测试
+adk web
+
+## 单元测试
+conda activate adk
+cd /Users/adam/adk/adk-samples/agents/draft_craft && pytest draft_craft/tests/test_scoring_tools.py
