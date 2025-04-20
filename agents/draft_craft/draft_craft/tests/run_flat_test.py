@@ -135,6 +135,48 @@ async def run_agent_and_get_final_response(runner, session_service, app_name, se
                 if function_call_part and function_call_part.function_call:
                     function_name = getattr(function_call_part.function_call, 'name', 'unknown')
                     print(f">>> Function call: {function_name}")
+                    
+                    # 检测保存家长评分结果的工具调用
+                    if function_name == "save_parents_scoring_result" and hasattr(function_call_part.function_call, 'args'):
+                        if hasattr(function_call_part.function_call.args, 'llm_output'):
+                            llm_output = function_call_part.function_call.args.llm_output
+                            
+                            # 从LLM输出中提取分数
+                            score_match = re.search(r'评分：(\d+)', llm_output)
+                            if score_match:
+                                score = float(score_match.group(1))
+                                feedback = llm_output
+                                
+                                # 手动保存评分和反馈
+                                print(f">>> 提取家长评分: {score}, 反馈长度: {len(feedback)}")
+                                session = session_service.get_session(
+                                    app_name=app_name, 
+                                    user_id=USER_ID, 
+                                    session_id=session_id
+                                )
+                                session.state['current_score'] = score
+                                session.state['current_feedback'] = feedback
+                                session.state['is_complete'] = score >= 80.0  # 家长评分是0-100分制
+                                
+                                # 记录保存状态
+                                print(f"✅ 已保存家长评分: {score}")
+                                print(f"✅ 已保存家长评价反馈 (长度: {len(feedback)})")
+                                print(f"✅ 已设置完成状态: {session.state['is_complete']}")
+                    
+                    # 如果是save_draft_result，直接保存草稿内容
+                    if function_name == "save_draft_result" and hasattr(function_call_part.function_call, 'args') and function_call_part.function_call.args:
+                        if hasattr(function_call_part.function_call.args, 'content'):
+                            draft_content = function_call_part.function_call.args.content
+                            
+                            # 手动保存草稿内容
+                            print(f">>> 手动保存草稿，长度: {len(draft_content)}")
+                            session = session_service.get_session(
+                                app_name=app_name, 
+                                user_id=USER_ID, 
+                                session_id=session_id
+                            )
+                            session.state['current_draft'] = draft_content
+                            session.state['iteration_count'] = 1
             elif any(hasattr(part, 'text') for part in event.content.parts):
                 text_part = next((part for part in event.content.parts if hasattr(part, 'text')), None)
                 text_content = getattr(text_part, 'text', '')
@@ -396,6 +438,34 @@ async def async_main():
                                     session.state['current_score'] = score_value
                                     session.state['current_feedback'] = feedback_content
                                     session.state['is_complete'] = score_value >= 8.0
+                                    
+                        # 如果是save_parents_scoring_result，提取评分结果
+                        elif function_name == "save_parents_scoring_result" and hasattr(function_call_part.function_call, 'args'):
+                            args = function_call_part.function_call.args
+                            if hasattr(args, 'llm_output'):
+                                llm_output = args.llm_output
+                                
+                                # 从LLM输出中提取分数
+                                score_match = re.search(r'评分：(\d+)', llm_output)
+                                if score_match:
+                                    score_value = float(score_match.group(1))
+                                    feedback_content = llm_output
+                                    
+                                    # 手动保存评分和反馈
+                                    print(f">>> 手动保存家长评分: {score_value}, 反馈长度: {len(feedback_content)}")
+                                    session = session_service.get_session(
+                                        app_name=APP_NAME, 
+                                        user_id=USER_ID, 
+                                        session_id=SESSION_ID
+                                    )
+                                    session.state['current_score'] = score_value
+                                    session.state['current_feedback'] = feedback_content
+                                    session.state['is_complete'] = score_value >= 80.0  # 家长评分是0-100分制
+                                    
+                                    # 记录保存状态
+                                    print(f"✅ 已保存家长评分: {score_value}")
+                                    print(f"✅ 已保存家长评价反馈 (长度: {len(feedback_content)})")
+                                    print(f"✅ 已设置完成状态: {session.state['is_complete']}")
                 
                 # 从文本内容中提取评分和反馈
                 elif any(hasattr(part, 'text') for part in event.content.parts):
