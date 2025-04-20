@@ -190,7 +190,7 @@ def save_parents_scoring_result(
         state_manager.set(CURRENT_FEEDBACK_KEY, feedback)
         
         # 获取分数阈值
-        score_threshold = state_manager.get(SCORE_THRESHOLD_KEY, 80.0)
+        score_threshold = state_manager.get(SCORE_THRESHOLD_KEY, 90.0)
         
         # 确定是否完成
         is_complete = score >= score_threshold

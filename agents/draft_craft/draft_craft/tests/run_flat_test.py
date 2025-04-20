@@ -156,7 +156,7 @@ async def run_agent_and_get_final_response(runner, session_service, app_name, se
                                 )
                                 session.state['current_score'] = score
                                 session.state['current_feedback'] = feedback
-                                session.state['is_complete'] = score >= 80.0  # 家长评分是0-100分制
+                                session.state['is_complete'] = score >= 90.0  # 家长评分从80分提高到90分
                                 
                                 # 记录保存状态
                                 print(f"✅ 已保存家长评分: {score}")
@@ -230,7 +230,7 @@ async def run_agent_and_get_final_response(runner, session_service, app_name, se
                                             )
                                             session.state['current_score'] = score
                                             session.state['current_feedback'] = feedback
-                                            session.state['is_complete'] = score >= 8.0  # 如果得分高于8.0，则认为完成
+                                            session.state['is_complete'] = score >= 9.0  # 阈值从8分提高到9分（十分制）
                                             
                                             # 记录保存状态
                                             print(f"✅ 已保存分数: {score}")
@@ -396,7 +396,7 @@ async def async_main():
     # 4.3 评分文稿
     if draft_content:
         print("\n>>> 第3步: 评分文稿")
-        score_message = "请使用score_for_parents工具对当前文稿进行评分，评分时从中等家长受众的视角出发，参考受众画像，按照评分标准全面评估文稿质量。"
+        score_message = "请使用score_for_parents工具对当前文稿进行评分，评分时从中等家长受众的视角出发，参考audience_profile字段中的受众画像，按照评分标准全面评估文稿质量。请确保传递文稿内容、受众画像和评分标准三个参数。"
         
         content = types.Content()
         if content.parts is None:
@@ -408,51 +408,85 @@ async def async_main():
         feedback_content = None
         score_value = None
         
-        async for event in runner.run_async(
-            new_message=content,
-            user_id=USER_ID,
-            session_id=SESSION_ID
-        ):
-            if hasattr(event, 'content') and event.content and hasattr(event.content, 'parts'):
-                if any(hasattr(part, 'function_call') for part in event.content.parts):
-                    function_call_part = next((part for part in event.content.parts if hasattr(part, 'function_call')), None)
-                    if function_call_part and function_call_part.function_call:
-                        function_name = getattr(function_call_part.function_call, 'name', 'unknown')
-                        print(f">>> 调用工具: {function_name}")
-                        
-                        # 如果是save_scoring_result，提取评分和反馈
-                        if function_name == "save_scoring_result" and hasattr(function_call_part.function_call, 'args'):
-                            args = function_call_part.function_call.args
-                            if hasattr(args, 'score') and hasattr(args, 'feedback'):
-                                score_value = float(args.score) if args.score else None
-                                feedback_content = args.feedback if args.feedback else None
-                                
-                                # 手动保存评分和反馈
-                                if score_value is not None and feedback_content:
-                                    print(f">>> 手动保存评分: {score_value}, 反馈长度: {len(feedback_content)}")
-                                    session = session_service.get_session(
-                                        app_name=APP_NAME, 
-                                        user_id=USER_ID, 
-                                        session_id=SESSION_ID
-                                    )
-                                    session.state['current_score'] = score_value
-                                    session.state['current_feedback'] = feedback_content
-                                    session.state['is_complete'] = score_value >= 8.0
-                                    
-                        # 如果是save_parents_scoring_result，提取评分结果
-                        elif function_name == "save_parents_scoring_result" and hasattr(function_call_part.function_call, 'args'):
-                            args = function_call_part.function_call.args
-                            if hasattr(args, 'llm_output'):
-                                llm_output = args.llm_output
-                                
-                                # 从LLM输出中提取分数
-                                score_match = re.search(r'评分：(\d+)', llm_output)
-                                if score_match:
-                                    score_value = float(score_match.group(1))
-                                    feedback_content = llm_output
+        try:
+            async for event in runner.run_async(
+                new_message=content,
+                user_id=USER_ID,
+                session_id=SESSION_ID
+            ):
+                if hasattr(event, 'content') and event.content and hasattr(event.content, 'parts'):
+                    if any(hasattr(part, 'function_call') for part in event.content.parts):
+                        function_call_part = next((part for part in event.content.parts if hasattr(part, 'function_call')), None)
+                        if function_call_part and function_call_part.function_call:
+                            function_name = getattr(function_call_part.function_call, 'name', 'unknown')
+                            print(f">>> 调用工具: {function_name}")
+                            
+                            # 如果是save_scoring_result，提取评分和反馈
+                            if function_name == "save_scoring_result" and hasattr(function_call_part.function_call, 'args'):
+                                args = function_call_part.function_call.args
+                                if hasattr(args, 'score') and hasattr(args, 'feedback'):
+                                    score_value = float(args.score) if args.score else None
+                                    feedback_content = args.feedback if args.feedback else None
                                     
                                     # 手动保存评分和反馈
-                                    print(f">>> 手动保存家长评分: {score_value}, 反馈长度: {len(feedback_content)}")
+                                    if score_value is not None and feedback_content:
+                                        print(f">>> 手动保存评分: {score_value}, 反馈长度: {len(feedback_content)}")
+                                        session = session_service.get_session(
+                                            app_name=APP_NAME, 
+                                            user_id=USER_ID, 
+                                            session_id=SESSION_ID
+                                        )
+                                        session.state['current_score'] = score_value
+                                        session.state['current_feedback'] = feedback_content
+                                        session.state['is_complete'] = score_value >= 9.0  # 阈值从8分提高到9分（十分制）
+                    
+                            # 如果是save_parents_scoring_result，提取评分结果
+                            elif function_name == "save_parents_scoring_result" and hasattr(function_call_part.function_call, 'args'):
+                                args = function_call_part.function_call.args
+                                if hasattr(args, 'llm_output'):
+                                    llm_output = args.llm_output
+                                    
+                                    # 从LLM输出中提取分数
+                                    score_match = re.search(r'评分：(\d+)', llm_output)
+                                    if score_match:
+                                        score_value = float(score_match.group(1))
+                                        feedback_content = llm_output
+                                        
+                                        # 手动保存评分和反馈
+                                        print(f">>> 手动保存家长评分: {score_value}, 反馈长度: {len(feedback_content)}")
+                                        session = session_service.get_session(
+                                            app_name=APP_NAME, 
+                                            user_id=USER_ID, 
+                                            session_id=SESSION_ID
+                                        )
+                                        session.state['current_score'] = score_value
+                                        session.state['current_feedback'] = feedback_content
+                                        session.state['is_complete'] = score_value >= 90.0  # 家长评分是0-100分制，阈值从80分提高到90分
+                                        
+                                        # 记录保存状态
+                                        print(f"✅ 已保存家长评分: {score_value}")
+                                        print(f"✅ 已保存家长评价反馈 (长度: {len(feedback_content)})")
+                                        print(f"✅ 已设置完成状态: {session.state['is_complete']}")
+                    
+                    # 从文本内容中提取评分和反馈
+                    elif any(hasattr(part, 'text') for part in event.content.parts):
+                        text_part = next((part for part in event.content.parts if hasattr(part, 'text')), None)
+                        text_content = getattr(text_part, 'text', '')
+                        
+                        if text_content:
+                            print(f">>> 文本内容: {text_content[:100]}...")
+                            
+                            # 如果还没有反馈内容且内容足够长，尝试提取评分和反馈
+                            if feedback_content is None and len(text_content) > 50:
+                                feedback_content = text_content
+                                
+                                # 尝试提取分数
+                                score_match = re.search(r'(\d+(\.\d+)?)(?:/10)?分?', text_content)
+                                if score_match:
+                                    score_value = float(score_match.group(1))
+                                    
+                                    # 手动保存评分和反馈
+                                    print(f">>> 从LLM响应中提取评分: {score_value}, 反馈长度: {len(feedback_content)}")
                                     session = session_service.get_session(
                                         app_name=APP_NAME, 
                                         user_id=USER_ID, 
@@ -460,44 +494,15 @@ async def async_main():
                                     )
                                     session.state['current_score'] = score_value
                                     session.state['current_feedback'] = feedback_content
-                                    session.state['is_complete'] = score_value >= 80.0  # 家长评分是0-100分制
-                                    
-                                    # 记录保存状态
-                                    print(f"✅ 已保存家长评分: {score_value}")
-                                    print(f"✅ 已保存家长评价反馈 (长度: {len(feedback_content)})")
-                                    print(f"✅ 已设置完成状态: {session.state['is_complete']}")
-                
-                # 从文本内容中提取评分和反馈
-                elif any(hasattr(part, 'text') for part in event.content.parts):
-                    text_part = next((part for part in event.content.parts if hasattr(part, 'text')), None)
-                    text_content = getattr(text_part, 'text', '')
-                    
-                    if text_content:
-                        print(f">>> 文本内容: {text_content[:100]}...")
-                        
-                        # 如果还没有反馈内容且内容足够长，尝试提取评分和反馈
-                        if feedback_content is None and len(text_content) > 50:
-                            feedback_content = text_content
-                            
-                            # 尝试提取分数
-                            score_match = re.search(r'(\d+(\.\d+)?)(?:/10)?分?', text_content)
-                            if score_match:
-                                score_value = float(score_match.group(1))
-                                
-                                # 手动保存评分和反馈
-                                print(f">>> 从LLM响应中提取评分: {score_value}, 反馈长度: {len(feedback_content)}")
-                                session = session_service.get_session(
-                                    app_name=APP_NAME, 
-                                    user_id=USER_ID, 
-                                    session_id=SESSION_ID
-                                )
-                                session.state['current_score'] = score_value
-                                session.state['current_feedback'] = feedback_content
-                                session.state['is_complete'] = score_value >= 8.0
-                            else:
-                                # 不使用默认分数，而是记录问题
-                                print("⚠️ 警告: 无法从LLM响应中提取评分数据")
-                                print("⚠️ 这可能表明LLM没有按照预期格式生成评分")
+                                    session.state['is_complete'] = score_value >= 9.0  # 阈值从8分提高到9分（十分制）
+                                else:
+                                    # 不使用默认分数，而是记录问题
+                                    print("⚠️ 警告: 无法从LLM响应中提取评分数据")
+                                    print("⚠️ 这可能表明LLM没有按照预期格式生成评分")
+        except Exception as e:
+            # 这部分原本没有匹配的try块
+            logger.error(f"评分文稿过程中发生错误: {e}", exc_info=True)
+            print(f"⚠️ 警告: 评分文稿过程中发生错误: {e}")
     
     # 5. 检查最终会话状态
     final_session = session_service.get_session(app_name=APP_NAME, user_id=USER_ID, session_id=SESSION_ID)
