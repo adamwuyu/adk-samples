@@ -1,9 +1,9 @@
 [project]
-name = "sequential-orchestrator-flat"
+name = "draft_craft"
 version = "0.1.0"
 description = "扁平化实现的写作和评分流程编排器"
 authors = [
-    {name = "ADK团队"}
+    {name = "Adam"}
 ]
 license = "Apache License 2.0"
 readme = "README.md"

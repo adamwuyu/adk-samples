@@ -1,20 +1,11 @@
 import pytest
 import os
 
-# 假设score_for_parents已按FunctionTool规范注册并可直接import
-# from draft_craft.tools.scoring_tools import score_for_parents
-
-# 为TDD阶段，先用mock实现或占位符
-def score_for_parents(draft_content, audience_profile, scoring_criteria):
-    # TODO: 替换为真实实现
-    return {
-        "score": 80,
-        "feedback": "内容贴合家长关心的问题，结构清晰，建议补充更多实际案例。",
-        "key_issues": ["建议补充实际案例"]
-    }
+from draft_craft.tools.scoring_tools import score_for_parents
 
 @pytest.fixture
 def default_audience_profile():
+    # 动态拼接，保证无论在哪运行都能找到
     base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
     audience_path = os.path.join(base_dir, "docs", "受众描述-中等家长.md")
     with open(audience_path, encoding="utf-8") as f:
