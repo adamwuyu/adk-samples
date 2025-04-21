@@ -59,6 +59,7 @@ def score_for_parents(
     """
     # 日志记录
     logger.info(f"开始对文稿进行评分，文稿长度: {len(draft_content)}")
+    logger.warning("[SCORING_DEBUG] 开始对文稿进行评分...")
     
     # 保留特殊情况的快速返回逻辑
     if not draft_content.strip():
@@ -84,7 +85,7 @@ def score_for_parents(
         }, {
             "audience_type": "parents"
         })
-    
+    print("[SCORING_DEBUG] score_for_parents prompt:", prompt[:200])
     # 返回提示词，供Agent处理
     return {
         "status": "llm_prompt_ready",
@@ -113,13 +114,20 @@ def parse_scoring_result(llm_output: str) -> Dict[str, Any]:
     }
     
     try:
-        # 匹配分数 (尝试在文本中找到0-100之间的整数)
-        score_match = re.search(r'(?:^|\D)(\d{1,3})(?:\D|$)', llm_output)
+        # 优先匹配"1. 数字"格式
+        score_match = re.search(r'1\.\s*([1-9][0-9]?|100)\b', llm_output)
         if score_match:
             score = int(score_match.group(1))
             if 0 <= score <= 100:
                 result["score"] = score
                 logger.info(f"解析到分数: {score}")
+        else:
+            # 兜底：匹配第一个0-100的独立整数
+            score_match = re.search(r'\b([1-9][0-9]?|100)\b', llm_output)
+            if score_match:
+                score = int(score_match.group(1))
+                result["score"] = score
+                logger.info(f"兜底解析到分数: {score}")
         
         # 提取关键问题 (尝试匹配"-"开头的列表项)
         key_issues = []
@@ -170,13 +178,15 @@ def save_parents_scoring_result(
     Returns:
         dict: 包含操作状态和评分摘要的字典
     """
-    logger.info("开始保存家长视角评分结果...")
-    logger.info(f"LLM输出内容摘要: {llm_output[:100]}..., 长度: {len(llm_output)}")
+    print("[SCORING_DEBUG] llm_output内容:", repr(llm_output))
+    logger.warning("[SCORING_DEBUG] 开始保存家长视角评分结果...")
+    logger.warning(f"[SCORING_DEBUG] 摘要: {llm_output[:100]}..., 长度: {len(llm_output)}")
     
     try:
         # 解析LLM输出
         parsed_result = parse_scoring_result(llm_output)
         score = parsed_result["score"]
+        logger.warning(f"[SCORING_DEBUG] score: {score}")
         feedback = parsed_result["feedback"]
         key_issues = parsed_result["key_issues"]
         
@@ -190,7 +200,7 @@ def save_parents_scoring_result(
         state_manager.set(CURRENT_FEEDBACK_KEY, feedback)
         
         # 获取分数阈值
-        score_threshold = state_manager.get(SCORE_THRESHOLD_KEY, 90.0)
+        score_threshold = state_manager.get(SCORE_THRESHOLD_KEY, 90)
         
         # 确定是否完成
         is_complete = score >= score_threshold

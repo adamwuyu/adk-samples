@@ -27,6 +27,7 @@ from datetime import datetime
 from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
 from google.genai import types
+from draft_craft.tools import check_progress
 
 # 解析命令行参数
 parser = argparse.ArgumentParser(description='扁平化写作智能体draft_craft的集成测试')
@@ -104,14 +105,21 @@ TEST_CASES = [
         INITIAL_SCORING_CRITERIA_KEY: "请从内容全面性、结构清晰度、表达准确性、通俗易懂、案例丰富性等维度进行评分。",
         "audience_profile": "目标受众为对AI技术感兴趣但缺乏专业背景的普通互联网用户，年龄18-45岁，关注新技术对生活和工作的影响，"
                            "希望通过文章快速了解AI写作工具的基本原理、应用场景及其优缺点。"
+    },
+    # 必不及格测试用例
+    {
+        INITIAL_MATERIAL_KEY: "素材极其简略，仅一句话。",
+        INITIAL_REQUIREMENTS_KEY: "写一篇结构复杂、内容丰富、案例详实的长文，要求极高。",
+        INITIAL_SCORING_CRITERIA_KEY: "必须有5个真实案例，结构极清晰，语言极优美，创新性强。",
+        "audience_profile": "专家级评审",
+        "score_threshold": 92
     }
 ]
 
-# 默认使用第一组数据，便于手动切换
-TEST_INITIAL_DATA = TEST_CASES[0]
+# 默认使用必不及格测试用例
+TEST_INITIAL_DATA = TEST_CASES[-1]
 
 async def async_main():
-    """设置ADK组件并运行扁平化写作工作流。"""
     log_path = os.path.join(os.path.dirname(__file__), "logs", "flat_test_debug.log")
     os.makedirs(os.path.dirname(log_path), exist_ok=True)
     with open(log_path, "w", encoding="utf-8") as log_file:
@@ -146,67 +154,78 @@ async def async_main():
         )
         log(f"✅ 已为Agent '{root_agent.name}'创建Runner")
         
-        # 4. 手动执行扁平化架构流程
-        
         # 4.1 检查初始数据
         log("\n>>> 第1步: 检查初始数据")
         init_check_message = "请检查初始数据是否齐全。"
-        
         content = types.Content()
         if content.parts is None:
             content.parts = []
         part = types.Part()
         part.text = init_check_message
         content.parts.append(part)
-        
         async for event in runner.run_async(
             new_message=content,
             user_id=USER_ID,
             session_id=SESSION_ID
         ):
-            # 直接假设结构存在，去除if hasattr判断
-            function_call_part = next((part for part in event.content.parts if hasattr(part, 'function_call')), None)
-            if function_call_part and function_call_part.function_call:
-                function_name = getattr(function_call_part.function_call, 'name', 'unknown')
-                log(f">>> 调用工具: {function_name}")
+            # 简洁日志输出
+            if hasattr(event, "is_final_response") and event.is_final_response():
+                if event.content and event.content.parts and hasattr(event.content.parts[0], "text") and event.content.parts[0].text:
+                    log(f"[FINAL] {event.content.parts[0].text}")
+                else:
+                    log(f"[FINAL] {event}")
+            elif hasattr(event, "get_function_calls") and event.get_function_calls():
+                for call in event.get_function_calls():
+                    log(f"[TOOL_CALL] {call.name} args={call.args}")
+            elif hasattr(event, "get_function_responses") and event.get_function_responses():
+                for resp in event.get_function_responses():
+                    log(f"[TOOL_RESP] {resp.name} result={resp.response}")
         
         # 4.2 生成初始文稿
         log("\n>>> 第2步: 生成初始文稿")
         create_draft_message = "请根据要求生成文稿。"
-        
         content = types.Content()
         content.parts = [types.Part()]
         content.parts[0].text = create_draft_message
-        
         async for event in runner.run_async(
             new_message=content,
             user_id=USER_ID,
             session_id=SESSION_ID
         ):
-            # 直接假设结构存在，去除if hasattr判断
-            function_call_part = next((part for part in event.content.parts if hasattr(part, 'function_call')), None)
-            if function_call_part and function_call_part.function_call:
-                function_name = getattr(function_call_part.function_call, 'name', 'unknown')
-                log(f">>> 调用工具: {function_name}")
+            if hasattr(event, "is_final_response") and event.is_final_response():
+                if event.content and event.content.parts and hasattr(event.content.parts[0], "text") and event.content.parts[0].text:
+                    log(f"[FINAL] {event.content.parts[0].text}")
+                else:
+                    log(f"[FINAL] {event}")
+            elif hasattr(event, "get_function_calls") and event.get_function_calls():
+                for call in event.get_function_calls():
+                    log(f"[TOOL_CALL] {call.name} args={call.args}")
+            elif hasattr(event, "get_function_responses") and event.get_function_responses():
+                for resp in event.get_function_responses():
+                    log(f"[TOOL_RESP] {resp.name} result={resp.response}")
         
         # 4.3 评分文稿
         log("\n>>> 第3步: 评分文稿")
         score_message = "请使用score_for_parents工具对当前文稿进行评分，评分时从中等家长受众的视角出发，参考audience_profile字段中的受众画像，按照评分标准全面评估文稿质量。请确保传递文稿内容、受众画像和评分标准三个参数。"
-        
         content = types.Content()
         content.parts = [types.Part()]
         content.parts[0].text = score_message
-        
         async for event in runner.run_async(
             new_message=content,
             user_id=USER_ID,
             session_id=SESSION_ID
         ):
-            # 直接假设结构存在，去除if hasattr判断
-            function_call_part = next((part for part in event.content.parts if hasattr(part, 'function_call')), None)
-            if function_call_part and function_call_part.function_call:
-                function_name = getattr(function_call_part.function_call, 'name', 'unknown')
-                log(f">>> 调用工具: {function_name}")
+            if hasattr(event, "is_final_response") and event.is_final_response():
+                if event.content and event.content.parts and hasattr(event.content.parts[0], "text") and event.content.parts[0].text:
+                    log(f"[FINAL] {event.content.parts[0].text}")
+                else:
+                    log(f"[FINAL] {event}")
+            elif hasattr(event, "get_function_calls") and event.get_function_calls():
+                for call in event.get_function_calls():
+                    log(f"[TOOL_CALL] {call.name} args={call.args}")
+            elif hasattr(event, "get_function_responses") and event.get_function_responses():
+                for resp in event.get_function_responses():
+                    log(f"[TOOL_RESP] {resp.name} result={resp.response}")
         
         # 5. 检查最终会话状态
         final_session = session_service.get_session(app_name=APP_NAME, user_id=USER_ID, session_id=SESSION_ID)

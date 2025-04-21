@@ -423,7 +423,7 @@ def score_draft(tool_context: ToolContext) -> dict:
                 "message": f"评分结果保存失败，以下键无法更新: {failed_keys}"
             }
         
-        threshold = state_manager.get(SCORE_THRESHOLD_KEY, 8.5)
+        threshold = state_manager.get(SCORE_THRESHOLD_KEY, 90)
         return {
             "status": "success",
             "score": score,
@@ -457,7 +457,7 @@ def check_progress(tool_context: ToolContext) -> dict:
     
     # 获取关键数据
     score = state_manager.get(CURRENT_SCORE_KEY)
-    threshold = state_manager.get(SCORE_THRESHOLD_KEY, 8.5)
+    threshold = state_manager.get(SCORE_THRESHOLD_KEY, 90)
     iteration = state_manager.get(ITERATION_COUNT_KEY, 0)
     
     logger.info(f"检查进度：迭代={iteration}，分数={score}，阈值={threshold}")
@@ -466,6 +466,7 @@ def check_progress(tool_context: ToolContext) -> dict:
     should_continue = True
     reason = ""
     
+    logger.warning(f"[SCORING_DEBUG] iteration: {iteration}, MAX_ITERATIONS: {MAX_ITERATIONS}, score: {score}, threshold: {threshold}")
     if iteration >= MAX_ITERATIONS:
         should_continue = False
         reason = f"已达到最大迭代次数（{MAX_ITERATIONS}）"

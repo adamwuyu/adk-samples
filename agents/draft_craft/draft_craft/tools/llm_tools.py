@@ -186,6 +186,9 @@ def save_draft_result(content: str, tool_context: ToolContext) -> Dict[str, Any]
         save_result = state_manager.store_draft_efficiently(content)
         logger.info(f"文稿保存结果: {save_result}")
         
+        # 每次保存文稿都递增iteration_count
+        state_manager.set(ITERATION_COUNT_KEY, iteration_count + 1)
+        
         # 再次检查保存是否成功
         current_draft = state_manager.get(CURRENT_DRAFT_KEY)
         if not current_draft:
@@ -418,7 +421,7 @@ def save_scoring_result(score: float, feedback: str, tool_context: ToolContext) 
         }
         
         # 获取当前分数阈值，如果没有则使用默认值
-        score_threshold = state_manager.get(SCORE_THRESHOLD_KEY, 8.0)
+        score_threshold = state_manager.get(SCORE_THRESHOLD_KEY, 90)
         
         # 判断是否达到完成标准
         is_complete = rounded_score >= score_threshold
@@ -488,7 +491,7 @@ def save_scoring_result(score: float, feedback: str, tool_context: ToolContext) 
             tool_context.state[CURRENT_FEEDBACK_KEY] = feedback
             
             # 获取当前分数阈值，如果没有则使用默认值
-            score_threshold = tool_context.state.get(SCORE_THRESHOLD_KEY, 8.0)
+            score_threshold = tool_context.state.get(SCORE_THRESHOLD_KEY, 90)
             
             # 判断是否达到完成标准
             is_complete = rounded_score >= score_threshold
