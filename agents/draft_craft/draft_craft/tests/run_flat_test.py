@@ -115,6 +115,7 @@ async def async_main():
     log_path = os.path.join(os.path.dirname(__file__), "logs", "flat_test_debug.log")
     os.makedirs(os.path.dirname(log_path), exist_ok=True)
     with open(log_path, "w", encoding="utf-8") as log_file:
+        log_file.write(f"[RUN START] {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
         def log(msg):
             log_file.write(msg + "\n")
             log_file.flush()
@@ -177,7 +178,6 @@ async def async_main():
         content.parts = [types.Part()]
         content.parts[0].text = create_draft_message
         
-        draft_content = None
         async for event in runner.run_async(
             new_message=content,
             user_id=USER_ID,
@@ -188,43 +188,25 @@ async def async_main():
             if function_call_part and function_call_part.function_call:
                 function_name = getattr(function_call_part.function_call, 'name', 'unknown')
                 log(f">>> 调用工具: {function_name}")
-                if function_name == "save_draft_result" and hasattr(function_call_part.function_call, 'args') and function_call_part.function_call.args:
-                    log("[DEBUG] 进入 save_draft_result 分支")
-                    if hasattr(function_call_part.function_call.args, 'content'):
-                        draft_content = function_call_part.function_call.args.content
-                        log(f">>> 手动保存草稿，长度: {len(draft_content)}")
-                        session = session_service.get_session(
-                            app_name=APP_NAME, 
-                            user_id=USER_ID, 
-                            session_id=SESSION_ID
-                        )
-                        session.state['current_draft'] = draft_content
-                        session.state['iteration_count'] = 1
-                        log("[DEBUG] 离开 save_draft_result 分支")
         
         # 4.3 评分文稿
-        if draft_content:
-            log("\n>>> 第3步: 评分文稿")
-            score_message = "请使用score_for_parents工具对当前文稿进行评分，评分时从中等家长受众的视角出发，参考audience_profile字段中的受众画像，按照评分标准全面评估文稿质量。请确保传递文稿内容、受众画像和评分标准三个参数。"
-            
-            content = types.Content()
-            content.parts = [types.Part()]
-            content.parts[0].text = score_message
-            
-            feedback_content = None
-            score_value = None
-            # 去除try/except，直接抛出异常
-            async for event in runner.run_async(
-                new_message=content,
-                user_id=USER_ID,
-                session_id=SESSION_ID
-            ):
-                # 直接假设结构存在，去除if hasattr判断
-                function_call_part = next((part for part in event.content.parts if hasattr(part, 'function_call')), None)
-                if function_call_part and function_call_part.function_call:
-                    function_name = getattr(function_call_part.function_call, 'name', 'unknown')
-                    log(f">>> 调用工具: {function_name}")
-                    # 这里可根据需要补充对评分结果的提取和保存逻辑
+        log("\n>>> 第3步: 评分文稿")
+        score_message = "请使用score_for_parents工具对当前文稿进行评分，评分时从中等家长受众的视角出发，参考audience_profile字段中的受众画像，按照评分标准全面评估文稿质量。请确保传递文稿内容、受众画像和评分标准三个参数。"
+        
+        content = types.Content()
+        content.parts = [types.Part()]
+        content.parts[0].text = score_message
+        
+        async for event in runner.run_async(
+            new_message=content,
+            user_id=USER_ID,
+            session_id=SESSION_ID
+        ):
+            # 直接假设结构存在，去除if hasattr判断
+            function_call_part = next((part for part in event.content.parts if hasattr(part, 'function_call')), None)
+            if function_call_part and function_call_part.function_call:
+                function_name = getattr(function_call_part.function_call, 'name', 'unknown')
+                log(f">>> 调用工具: {function_name}")
         
         # 5. 检查最终会话状态
         final_session = session_service.get_session(app_name=APP_NAME, user_id=USER_ID, session_id=SESSION_ID)
