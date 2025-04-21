@@ -8,8 +8,7 @@ alwaysApply: false
 ⚠️注意：无论哪种测试方式，必须切换到adk虚拟环境（conda activate adk）。
 
 ## 基于LLM实时生成内容的集成测试
-conda activate adk
-cd /Users/adam/adk/adk-samples/agents/draft_craft/draft_craft && python -m tests.run_flat_test --use-llm
+conda activate adk && cd /Users/adam/adk/adk-samples/agents/draft_craft/draft_craft && python -m tests.run_flat_test --use-llm
 
 ## 基于dummy内容的集成测试
 conda activate adk

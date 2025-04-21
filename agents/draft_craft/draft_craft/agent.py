@@ -67,8 +67,22 @@ oneapi_api_key = os.getenv("ONEAPI_API_KEY")
 kingdora_base_url = os.getenv("KINGDORA_BASE_URL")
 kingdora_api_key = os.getenv("KINGDORA_API_KEY")
 
-# 优先尝试配置GPT-4o模型
-if oneapi_base_url and oneapi_api_key:
+# 优先尝试配置Gemini模型
+if kingdora_base_url and kingdora_api_key:
+    try:
+        model_instance = LiteLlm(
+            model="openai/gpt-4o-mini",
+            api_base=kingdora_base_url,
+            api_key=kingdora_api_key,
+            stream=True,
+            temperature=0.2
+        )
+        logger.info("✅ 成功配置Gemini模型")
+    except Exception as e:
+        logger.error(f"❌ 配置Gemini模型时出错: {e}")
+
+# 如果Gemini配置失败，尝试配置GPT-4o模型
+if not model_instance and oneapi_base_url and oneapi_api_key:
     try:
         model_instance = LiteLlm(
             model="openai/gpt-4o", 
@@ -79,20 +93,6 @@ if oneapi_base_url and oneapi_api_key:
         logger.info("✅ 成功配置GPT-4o模型")
     except Exception as e:
         logger.error(f"❌ 配置GPT模型时出错: {e}")
-
-# 如果GPT-4o配置失败，尝试配置Gemini模型
-if not model_instance and kingdora_base_url and kingdora_api_key:
-    try:
-        model_instance = LiteLlm(
-            model="openai/gemini-2.5-flash-preview-04-17",
-            api_base=kingdora_base_url,
-            api_key=kingdora_api_key,
-            stream=True,
-            temperature=0.2
-        )
-        logger.info("✅ 成功配置Gemini模型")
-    except Exception as e:
-        logger.error(f"❌ 配置Gemini模型时出错: {e}")
 
 # 如果无法配置任何模型，使用默认模型
 if not model_instance:
