@@ -16,19 +16,20 @@
 """扁平化架构Sequential Orchestrator的测试脚本。"""
 
 import asyncio
-import logging
 import sys
 import os
 import argparse
 from pprint import pprint
 import re
+import uuid
+from datetime import datetime
 
 from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
 from google.genai import types
 
 # 解析命令行参数
-parser = argparse.ArgumentParser(description='测试扁平化架构Sequential Orchestrator')
+parser = argparse.ArgumentParser(description='扁平化写作智能体draft_craft的集成测试')
 parser.add_argument('--use-llm', action='store_true', help='使用LLM实时生成内容，而不是模拟内容')
 args = parser.parse_args()
 
@@ -54,12 +55,6 @@ from draft_craft.tools.state_manager import (
     CURRENT_DRAFT_KEY, CURRENT_SCORE_KEY, CURRENT_FEEDBACK_KEY, 
     ITERATION_COUNT_KEY, IS_COMPLETE_KEY
 )
-from draft_craft.tools.logging_utils import setup_logging
-
-# 配置日志
-setup_logging(level=logging.INFO)
-logger = logging.getLogger(__name__)
-logger.info("测试脚本启动，已配置日志系统")
 
 # 应用和用户常量定义
 APP_NAME = "writing_scoring_flat_app"
@@ -115,274 +110,89 @@ TEST_CASES = [
 # 默认使用第一组数据，便于手动切换
 TEST_INITIAL_DATA = TEST_CASES[0]
 
-async def run_agent_and_get_final_response(runner, session_service, app_name, session_id, query=None):
-    """运行Agent并获取最终响应"""
-    print(f">>> 用户查询 (发送给Runner): {query}")
-    
-    all_events = []
-    score_text = None
-    # 使用正确的命名参数
-    async for event in runner.run_async(
-        new_message=query,
-        user_id="flat_test_user",
-        session_id=session_id
-    ):
-        all_events.append(event)
-        
-        if hasattr(event, 'content') and event.content and hasattr(event.content, 'parts'):
-            if any(hasattr(part, 'function_call') for part in event.content.parts):
-                function_call_part = next((part for part in event.content.parts if hasattr(part, 'function_call')), None)
-                if function_call_part and function_call_part.function_call:
-                    function_name = getattr(function_call_part.function_call, 'name', 'unknown')
-                    print(f">>> Function call: {function_name}")
-                    
-                    # 检测保存家长评分结果的工具调用
-                    if function_name == "save_parents_scoring_result" and hasattr(function_call_part.function_call, 'args'):
-                        if hasattr(function_call_part.function_call.args, 'llm_output'):
-                            llm_output = function_call_part.function_call.args.llm_output
-                            
-                            # 从LLM输出中提取分数
-                            score_match = re.search(r'评分：(\d+)', llm_output)
-                            if score_match:
-                                score = float(score_match.group(1))
-                                feedback = llm_output
-                                
-                                # 手动保存评分和反馈
-                                print(f">>> 提取家长评分: {score}, 反馈长度: {len(feedback)}")
-                                session = session_service.get_session(
-                                    app_name=app_name, 
-                                    user_id=USER_ID, 
-                                    session_id=session_id
-                                )
-                                session.state['current_score'] = score
-                                session.state['current_feedback'] = feedback
-                                session.state['is_complete'] = score >= 90.0  # 家长评分从80分提高到90分
-                                
-                                # 记录保存状态
-                                print(f"✅ 已保存家长评分: {score}")
-                                print(f"✅ 已保存家长评价反馈 (长度: {len(feedback)})")
-                                print(f"✅ 已设置完成状态: {session.state['is_complete']}")
-                    
-                    # 如果是save_draft_result，直接保存草稿内容
-                    if function_name == "save_draft_result" and hasattr(function_call_part.function_call, 'args') and function_call_part.function_call.args:
-                        if hasattr(function_call_part.function_call.args, 'content'):
-                            draft_content = function_call_part.function_call.args.content
-                            
-                            # 手动保存草稿内容
-                            print(f">>> 手动保存草稿，长度: {len(draft_content)}")
-                            session = session_service.get_session(
-                                app_name=app_name, 
-                                user_id=USER_ID, 
-                                session_id=session_id
-                            )
-                            session.state['current_draft'] = draft_content
-                            session.state['iteration_count'] = 1
-            elif any(hasattr(part, 'text') for part in event.content.parts):
-                text_part = next((part for part in event.content.parts if hasattr(part, 'text')), None)
-                text_content = getattr(text_part, 'text', '')
-                if text_content and (len(text_content) > 100 or any(kw in text_content for kw in ['AI写作工具', '人工智能', '创意写作'])):
-                    print(f">>> Text Content: {text_content[:100]}... 检测到草稿内容!")
-                    
-                    # 如果检测到草稿内容，手动保存草稿并调用评分工具
-                    session = session_service.get_session(
-                        app_name=app_name, 
-                        user_id=USER_ID, 
-                        session_id=session_id
-                    )
-                    if not session.state.get('current_draft'):
-                        print("未检测到自动保存草稿，手动保存...")
-                        session.state['current_draft'] = text_content
-                        session.state['iteration_count'] = 1
-                        
-                        # 手动调用评分工具
-                        print("已手动保存草稿，现在执行评分步骤...")
-                        
-                        # 创建评分请求
-                        scoring_request = "请根据评分标准对当前文稿进行评分，给出0-10分的分数和详细反馈。"
-                        
-                        # 发送评分请求并等待响应
-                        scoring_events = []
-                        async for scoring_event in runner.run_async(
-                            new_message=scoring_request, 
-                            user_id=USER_ID,
-                            session_id=session_id
-                        ):
-                            scoring_events.append(scoring_event)
-                            
-                            # 尝试提取分数和反馈
-                            if hasattr(scoring_event, 'content') and scoring_event.content and hasattr(scoring_event.content, 'parts'):
-                                text_parts = [part.text for part in scoring_event.content.parts if hasattr(part, 'text')]
-                                if text_parts:
-                                    score_text = text_parts[0]
-                                    if score_text:
-                                        # 尝试提取分数
-                                        score_match = re.search(r'(\d+(\.\d+)?)(?:/10)?分?', score_text)
-                                        feedback = score_text
-                                        
-                                        if score_match:
-                                            score = float(score_match.group(1))
-                                            
-                                            # 保存分数和反馈
-                                            session = session_service.get_session(
-                                                app_name=app_name, 
-                                                user_id=USER_ID, 
-                                                session_id=session_id
-                                            )
-                                            session.state['current_score'] = score
-                                            session.state['current_feedback'] = feedback
-                                            session.state['is_complete'] = score >= 9.0  # 阈值从8分提高到9分（十分制）
-                                            
-                                            # 记录保存状态
-                                            print(f"✅ 已保存分数: {score}")
-                                            print(f"✅ 已保存反馈 (长度: {len(feedback)})")
-                                            print(f"✅ 已设置完成状态: {session.state['is_complete']}")
-                                            break
-                                        else:
-                                            # 没有找到确切的分数，记录问题但不设置默认值
-                                            print("⚠️ 警告: 无法从LLM响应中提取评分数据")
-                                            print("⚠️ 这可能表明LLM没有按照预期格式生成评分")
-                else:
-                    print(f">>> Text Content: {text_content}")
-
-    # 确保至少有一个事件被处理
-    if all_events and not score_text:
-        # 尝试从最后几个事件中提取文本内容
-        last_text = ""
-        for event in reversed(all_events[-10:]):
-            if hasattr(event, 'content') and event.content and hasattr(event.content, 'parts'):
-                text_parts = [part.text for part in event.content.parts if hasattr(part, 'text')]
-                if text_parts and text_parts[0]:
-                    last_text = text_parts[0]
-                    break
-        
-        if last_text:
-            session = session_service.get_session(
-                app_name=app_name, 
-                user_id=USER_ID, 
-                session_id=session_id
-            )
-            # 如果没有draft内容，则设置最后的文本为draft
-            if not session.state.get('current_draft') and last_text:
-                session.state['current_draft'] = last_text
-                session.state['iteration_count'] = 1
-                print("⚠️ 警告: 自动保存最后文本为草稿，但未找到评分数据")
-    
-    # 必须返回整个事件列表
-    return all_events
-
-
 async def async_main():
     """设置ADK组件并运行扁平化写作工作流。"""
-    logger.info("开始扁平化架构测试 (ADK Runner)")
-    print("\n--- 开始扁平化架构测试 (ADK Runner) ---")
-    
-    # 1. 初始化SessionService
-    session_service = InMemorySessionService()
-    logger.info("Session Service初始化完成")
-    print("✅ Session Service初始化完成")
-    
-    # 2. 创建会话并设置初始状态
-    logger.info(f"设置初始数据: 材料长度={len(TEST_INITIAL_DATA[INITIAL_MATERIAL_KEY])}, "
-               f"要求长度={len(TEST_INITIAL_DATA[INITIAL_REQUIREMENTS_KEY])}, "
-               f"标准长度={len(TEST_INITIAL_DATA[INITIAL_SCORING_CRITERIA_KEY])}")
-    print("\n初始数据 (将设置在初始会话状态中):")
-    pprint(TEST_INITIAL_DATA)
-    
-    session = session_service.create_session(
-        app_name=APP_NAME,
-        user_id=USER_ID,
-        session_id=SESSION_ID,
-        state=TEST_INITIAL_DATA
-    )
-    logger.info(f"Session已创建: App='{APP_NAME}', User='{USER_ID}', Session='{SESSION_ID}'")
-    print(f"✅ Session已创建: App='{APP_NAME}', User='{USER_ID}', Session='{SESSION_ID}'，已设置初始状态")
-    
-    # 3. 创建Runner
-    runner = Runner(
-        agent=root_agent,
-        session_service=session_service,
-        app_name=APP_NAME
-    )
-    logger.info(f"已为Agent '{root_agent.name}'创建Runner")
-    print(f"✅ 已为Agent '{root_agent.name}'创建Runner")
-    
-    # 4. 手动执行扁平化架构流程
-    
-    # 4.1 检查初始数据
-    print("\n>>> 第1步: 检查初始数据")
-    init_check_message = "请检查初始数据是否齐全。"
-    
-    content = types.Content()
-    if content.parts is None:
-        content.parts = []
-    part = types.Part()
-    part.text = init_check_message
-    content.parts.append(part)
-    
-    async for event in runner.run_async(
-        new_message=content,
-        user_id=USER_ID,
-        session_id=SESSION_ID
-    ):
-        if hasattr(event, 'content') and event.content and hasattr(event.content, 'parts'):
-            if any(hasattr(part, 'function_call') for part in event.content.parts):
-                function_call_part = next((part for part in event.content.parts if hasattr(part, 'function_call')), None)
-                if function_call_part and function_call_part.function_call:
-                    function_name = getattr(function_call_part.function_call, 'name', 'unknown')
-                    print(f">>> 调用工具: {function_name}")
-    
-    # 4.2 生成初始文稿
-    print("\n>>> 第2步: 生成初始文稿")
-    create_draft_message = "请根据要求生成文稿。"
-    
-    content = types.Content()
-    if content.parts is None:
-        content.parts = []
-    part = types.Part()
-    part.text = create_draft_message
-    content.parts.append(part)
-    
-    draft_content = None
-    async for event in runner.run_async(
-        new_message=content,
-        user_id=USER_ID,
-        session_id=SESSION_ID
-    ):
-        if hasattr(event, 'content') and event.content and hasattr(event.content, 'parts'):
-            if any(hasattr(part, 'function_call') for part in event.content.parts):
-                function_call_part = next((part for part in event.content.parts if hasattr(part, 'function_call')), None)
-                if function_call_part and function_call_part.function_call:
-                    function_name = getattr(function_call_part.function_call, 'name', 'unknown')
-                    print(f">>> 调用工具: {function_name}")
-                    
-                    # 如果是save_draft_result，直接保存草稿内容
-                    if function_name == "save_draft_result" and hasattr(function_call_part.function_call, 'args') and function_call_part.function_call.args:
-                        if hasattr(function_call_part.function_call.args, 'content'):
-                            draft_content = function_call_part.function_call.args.content
-                            
-                            # 手动保存草稿内容
-                            print(f">>> 手动保存草稿，长度: {len(draft_content)}")
-                            session = session_service.get_session(
-                                app_name=APP_NAME, 
-                                user_id=USER_ID, 
-                                session_id=SESSION_ID
-                            )
-                            session.state['current_draft'] = draft_content
-                            session.state['iteration_count'] = 1
-            
-            # 直接从文本内容中尝试提取草稿
-            elif any(hasattr(part, 'text') for part in event.content.parts):
-                text_part = next((part for part in event.content.parts if hasattr(part, 'text')), None)
-                text_content = getattr(text_part, 'text', '')
-                if text_content and len(text_content) > 100:
-                    print(f">>> 文本内容: {text_content[:100]}... 检测到长文本")
-                    
-                    # 如果还没有草稿内容，保存此文本作为草稿
-                    if draft_content is None and ('人工智能' in text_content or 'AI写作' in text_content):
-                        draft_content = text_content
-                        print(f">>> 从LLM响应中提取草稿，长度: {len(draft_content)}")
-                        
-                        # 手动保存草稿内容
+    log_path = os.path.join(os.path.dirname(__file__), "logs", "flat_test_debug.log")
+    os.makedirs(os.path.dirname(log_path), exist_ok=True)
+    with open(log_path, "w", encoding="utf-8") as log_file:
+        def log(msg):
+            log_file.write(msg + "\n")
+            log_file.flush()
+        log("[DEBUG] 测试流程开始")
+        print("\n--- 开始扁平化架构测试 (ADK Runner) ---")
+        
+        # 1. 初始化SessionService
+        session_service = InMemorySessionService()
+        log("✅ Session Service初始化完成")
+        
+        # 2. 创建会话并设置初始状态
+        log("\n初始数据 (将设置在初始会话状态中):")
+        pprint(TEST_INITIAL_DATA)
+        
+        session = session_service.create_session(
+            app_name=APP_NAME,
+            user_id=USER_ID,
+            session_id=SESSION_ID,
+            state=TEST_INITIAL_DATA
+        )
+        log(f"✅ Session已创建: App='{APP_NAME}', User='{USER_ID}', Session='{SESSION_ID}'，已设置初始状态")
+        
+        # 3. 创建Runner
+        runner = Runner(
+            agent=root_agent,
+            session_service=session_service,
+            app_name=APP_NAME
+        )
+        log(f"✅ 已为Agent '{root_agent.name}'创建Runner")
+        
+        # 4. 手动执行扁平化架构流程
+        
+        # 4.1 检查初始数据
+        log("\n>>> 第1步: 检查初始数据")
+        init_check_message = "请检查初始数据是否齐全。"
+        
+        content = types.Content()
+        if content.parts is None:
+            content.parts = []
+        part = types.Part()
+        part.text = init_check_message
+        content.parts.append(part)
+        
+        async for event in runner.run_async(
+            new_message=content,
+            user_id=USER_ID,
+            session_id=SESSION_ID
+        ):
+            # 直接假设结构存在，去除if hasattr判断
+            function_call_part = next((part for part in event.content.parts if hasattr(part, 'function_call')), None)
+            if function_call_part and function_call_part.function_call:
+                function_name = getattr(function_call_part.function_call, 'name', 'unknown')
+                log(f">>> 调用工具: {function_name}")
+        
+        # 4.2 生成初始文稿
+        log("\n>>> 第2步: 生成初始文稿")
+        create_draft_message = "请根据要求生成文稿。"
+        
+        content = types.Content()
+        content.parts = [types.Part()]
+        content.parts[0].text = create_draft_message
+        
+        draft_content = None
+        async for event in runner.run_async(
+            new_message=content,
+            user_id=USER_ID,
+            session_id=SESSION_ID
+        ):
+            # 直接假设结构存在，去除if hasattr判断
+            function_call_part = next((part for part in event.content.parts if hasattr(part, 'function_call')), None)
+            if function_call_part and function_call_part.function_call:
+                function_name = getattr(function_call_part.function_call, 'name', 'unknown')
+                log(f">>> 调用工具: {function_name}")
+                if function_name == "save_draft_result" and hasattr(function_call_part.function_call, 'args') and function_call_part.function_call.args:
+                    log("[DEBUG] 进入 save_draft_result 分支")
+                    if hasattr(function_call_part.function_call.args, 'content'):
+                        draft_content = function_call_part.function_call.args.content
+                        log(f">>> 手动保存草稿，长度: {len(draft_content)}")
                         session = session_service.get_session(
                             app_name=APP_NAME, 
                             user_id=USER_ID, 
@@ -390,167 +200,60 @@ async def async_main():
                         )
                         session.state['current_draft'] = draft_content
                         session.state['iteration_count'] = 1
-                else:
-                    print(f">>> 文本内容: {text_content}")
-    
-    # 4.3 评分文稿
-    if draft_content:
-        print("\n>>> 第3步: 评分文稿")
-        score_message = "请使用score_for_parents工具对当前文稿进行评分，评分时从中等家长受众的视角出发，参考audience_profile字段中的受众画像，按照评分标准全面评估文稿质量。请确保传递文稿内容、受众画像和评分标准三个参数。"
+                        log("[DEBUG] 离开 save_draft_result 分支")
         
-        content = types.Content()
-        if content.parts is None:
-            content.parts = []
-        part = types.Part()
-        part.text = score_message
-        content.parts.append(part)
-        
-        feedback_content = None
-        score_value = None
-        
-        try:
+        # 4.3 评分文稿
+        if draft_content:
+            log("\n>>> 第3步: 评分文稿")
+            score_message = "请使用score_for_parents工具对当前文稿进行评分，评分时从中等家长受众的视角出发，参考audience_profile字段中的受众画像，按照评分标准全面评估文稿质量。请确保传递文稿内容、受众画像和评分标准三个参数。"
+            
+            content = types.Content()
+            content.parts = [types.Part()]
+            content.parts[0].text = score_message
+            
+            feedback_content = None
+            score_value = None
+            # 去除try/except，直接抛出异常
             async for event in runner.run_async(
                 new_message=content,
                 user_id=USER_ID,
                 session_id=SESSION_ID
             ):
-                if hasattr(event, 'content') and event.content and hasattr(event.content, 'parts'):
-                    if any(hasattr(part, 'function_call') for part in event.content.parts):
-                        function_call_part = next((part for part in event.content.parts if hasattr(part, 'function_call')), None)
-                        if function_call_part and function_call_part.function_call:
-                            function_name = getattr(function_call_part.function_call, 'name', 'unknown')
-                            print(f">>> 调用工具: {function_name}")
-                            
-                            # 如果是save_scoring_result，提取评分和反馈
-                            if function_name == "save_scoring_result" and hasattr(function_call_part.function_call, 'args'):
-                                args = function_call_part.function_call.args
-                                if hasattr(args, 'score') and hasattr(args, 'feedback'):
-                                    score_value = float(args.score) if args.score else None
-                                    feedback_content = args.feedback if args.feedback else None
-                                    
-                                    # 手动保存评分和反馈
-                                    if score_value is not None and feedback_content:
-                                        print(f">>> 手动保存评分: {score_value}, 反馈长度: {len(feedback_content)}")
-                                        session = session_service.get_session(
-                                            app_name=APP_NAME, 
-                                            user_id=USER_ID, 
-                                            session_id=SESSION_ID
-                                        )
-                                        session.state['current_score'] = score_value
-                                        session.state['current_feedback'] = feedback_content
-                                        session.state['is_complete'] = score_value >= 9.0  # 阈值从8分提高到9分（十分制）
-                    
-                            # 如果是save_parents_scoring_result，提取评分结果
-                            elif function_name == "save_parents_scoring_result" and hasattr(function_call_part.function_call, 'args'):
-                                args = function_call_part.function_call.args
-                                if hasattr(args, 'llm_output'):
-                                    llm_output = args.llm_output
-                                    
-                                    # 从LLM输出中提取分数
-                                    score_match = re.search(r'评分：(\d+)', llm_output)
-                                    if score_match:
-                                        score_value = float(score_match.group(1))
-                                        feedback_content = llm_output
-                                        
-                                        # 手动保存评分和反馈
-                                        print(f">>> 手动保存家长评分: {score_value}, 反馈长度: {len(feedback_content)}")
-                                        session = session_service.get_session(
-                                            app_name=APP_NAME, 
-                                            user_id=USER_ID, 
-                                            session_id=SESSION_ID
-                                        )
-                                        session.state['current_score'] = score_value
-                                        session.state['current_feedback'] = feedback_content
-                                        session.state['is_complete'] = score_value >= 90.0  # 家长评分是0-100分制，阈值从80分提高到90分
-                                        
-                                        # 记录保存状态
-                                        print(f"✅ 已保存家长评分: {score_value}")
-                                        print(f"✅ 已保存家长评价反馈 (长度: {len(feedback_content)})")
-                                        print(f"✅ 已设置完成状态: {session.state['is_complete']}")
-                    
-                    # 从文本内容中提取评分和反馈
-                    elif any(hasattr(part, 'text') for part in event.content.parts):
-                        text_part = next((part for part in event.content.parts if hasattr(part, 'text')), None)
-                        text_content = getattr(text_part, 'text', '')
-                        
-                        if text_content:
-                            print(f">>> 文本内容: {text_content[:100]}...")
-                            
-                            # 如果还没有反馈内容且内容足够长，尝试提取评分和反馈
-                            if feedback_content is None and len(text_content) > 50:
-                                feedback_content = text_content
-                                
-                                # 尝试提取分数
-                                score_match = re.search(r'(\d+(\.\d+)?)(?:/10)?分?', text_content)
-                                if score_match:
-                                    score_value = float(score_match.group(1))
-                                    
-                                    # 手动保存评分和反馈
-                                    print(f">>> 从LLM响应中提取评分: {score_value}, 反馈长度: {len(feedback_content)}")
-                                    session = session_service.get_session(
-                                        app_name=APP_NAME, 
-                                        user_id=USER_ID, 
-                                        session_id=SESSION_ID
-                                    )
-                                    session.state['current_score'] = score_value
-                                    session.state['current_feedback'] = feedback_content
-                                    session.state['is_complete'] = score_value >= 9.0  # 阈值从8分提高到9分（十分制）
-                                else:
-                                    # 不使用默认分数，而是记录问题
-                                    print("⚠️ 警告: 无法从LLM响应中提取评分数据")
-                                    print("⚠️ 这可能表明LLM没有按照预期格式生成评分")
-        except Exception as e:
-            # 这部分原本没有匹配的try块
-            logger.error(f"评分文稿过程中发生错误: {e}", exc_info=True)
-            print(f"⚠️ 警告: 评分文稿过程中发生错误: {e}")
-    
-    # 5. 检查最终会话状态
-    final_session = session_service.get_session(app_name=APP_NAME, user_id=USER_ID, session_id=SESSION_ID)
-    logger.info("获取并分析最终会话状态")
-    print("\n--- 最终会话状态 (扁平化流程后) --- ")
-    if final_session:
-        # 打印关键状态字段，避免打印过长的内容
-        state_metadata = {}
-        for key, value in final_session.state.items():
-            if isinstance(value, str) and len(value) > 100:
-                state_metadata[key] = f"{value[:100]}... (长度: {len(value)}字符)"
-            else:
-                state_metadata[key] = value
+                # 直接假设结构存在，去除if hasattr判断
+                function_call_part = next((part for part in event.content.parts if hasattr(part, 'function_call')), None)
+                if function_call_part and function_call_part.function_call:
+                    function_name = getattr(function_call_part.function_call, 'name', 'unknown')
+                    log(f">>> 调用工具: {function_name}")
+                    # 这里可根据需要补充对评分结果的提取和保存逻辑
         
-        pprint(state_metadata)
+        # 5. 检查最终会话状态
+        final_session = session_service.get_session(app_name=APP_NAME, user_id=USER_ID, session_id=SESSION_ID)
+        if final_session:
+            # 打印关键状态字段，避免打印过长的内容
+            state_metadata = {}
+            for key, value in final_session.state.items():
+                if isinstance(value, str) and len(value) > 100:
+                    state_metadata[key] = f"{value[:100]}... (长度: {len(value)}字符)"
+                else:
+                    state_metadata[key] = value
+            # 控制台只输出关键信息
+            draft = final_session.state.get(CURRENT_DRAFT_KEY)
+            score = final_session.state.get(CURRENT_SCORE_KEY)
+            feedback = final_session.state.get(CURRENT_FEEDBACK_KEY)
+            iteration = final_session.state.get(ITERATION_COUNT_KEY)
+            is_complete = final_session.state.get(IS_COMPLETE_KEY)
+            log(f"[最终状态] 草稿: {'有' if draft else '无'}，分数: {score}，反馈: {'有' if feedback else '无'}，迭代: {iteration}，完成: {is_complete}")
+            # 结果统计
+            log("\n[结果统计]")
+            log(f"草稿长度: {len(draft) if draft else 0}")
+            log(f"反馈长度: {len(feedback) if feedback else 0}")
+            log(f"分数: {score}")
+            log(f"是否完成: {is_complete}")
+        else:
+            log("错误: 无法检索最终会话状态")
         
-        # 检查关键状态字段
-        draft = final_session.state.get(CURRENT_DRAFT_KEY)
-        draft_info = f"存在 (长度: {len(draft)}字符)" if draft else "缺失"
-        
-        score = final_session.state.get(CURRENT_SCORE_KEY)
-        score_info = f"存在 ({score})" if score is not None else "缺失"
-        
-        feedback = final_session.state.get(CURRENT_FEEDBACK_KEY)
-        feedback_info = f"存在 (长度: {len(feedback)}字符)" if feedback else "缺失"
-        
-        iteration = final_session.state.get(ITERATION_COUNT_KEY)
-        iteration_info = f"存在 ({iteration})" if iteration is not None else "缺失"
-        
-        is_complete = final_session.state.get(IS_COMPLETE_KEY)
-        complete_info = f"存在 ({is_complete})" if is_complete is not None else "缺失"
-        
-        logger.info(f"状态检查结果: draft={draft_info}, score={score_info}, "
-                  f"feedback={feedback_info}, iteration={iteration_info}, "
-                  f"is_complete={complete_info}")
-        
-        print("\n检查扁平化流程生成的键:")
-        print(f"  {CURRENT_DRAFT_KEY}: {draft_info}")
-        print(f"  {CURRENT_SCORE_KEY}: {score_info}")
-        print(f"  {CURRENT_FEEDBACK_KEY}: {feedback_info}")
-        print(f"  {ITERATION_COUNT_KEY}: {iteration_info}")
-        print(f"  {IS_COMPLETE_KEY}: {complete_info}")
-    else:
-        logger.error("无法检索最终会话状态")
-        print("错误: 无法检索最终会话状态")
-    
-    logger.info("扁平化架构测试已完成")
-    print("\n--- 扁平化架构测试 (ADK Runner) 已完成 ---")
+        log("\n--- 扁平化架构测试 (ADK Runner) 已完成 ---")
+        log("[DEBUG] 测试流程结束")
 
 
 if __name__ == "__main__":
