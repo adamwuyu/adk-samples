@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "composer-service"
+version = "0.1.0"
+description = "ADK 规范的 Composer Service 智能体"
+authors = [{name = "Your Name", email = "you@example.com"}]
+dependencies = []
+
+[project.scripts]
+composer-service = "composer_service:root_agent"
+
+[tool.setuptools.packages.find]
+where = ["composer_service"]
+include = ["composer_service*"]
+
+[tool.pytest.ini_options]
+pythonpath = [
+    "agents/composer"
+] 
