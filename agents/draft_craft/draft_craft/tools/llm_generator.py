@@ -68,63 +68,36 @@ class LlmContentGenerator:
     
     def _setup_model(self, model_name: Optional[str], temperature: float) -> LiteLlm:
         """
-        配置LLM模型
-        
-        Args:
-            model_name: 模型名称，如果为None则使用环境变量配置
-            temperature: 生成温度
-            
-        Returns:
-            配置好的LiteLlm实例
+        配置LLM模型，优先使用gpt-4.1-mini（kingdora优先），否则gpt-4o，否则抛出异常。
         """
-        # 检查环境变量中的模型配置
-        oneapi_base_url = os.getenv("ONEAPI_BASE_URL")
-        oneapi_api_key = os.getenv("ONEAPI_API_KEY")
         kingdora_base_url = os.getenv("KINGDORA_BASE_URL")
         kingdora_api_key = os.getenv("KINGDORA_API_KEY")
-        
-        # 如果指定了模型名称，直接使用
-        if model_name:
+        oneapi_base_url = os.getenv("ONEAPI_BASE_URL")
+        oneapi_api_key = os.getenv("ONEAPI_API_KEY")
+
+        if kingdora_base_url and kingdora_api_key:
             try:
-                if oneapi_base_url and oneapi_api_key:
-                    return LiteLlm(
-                        model=model_name,
-                        api_base=oneapi_base_url,
-                        api_key=oneapi_api_key,
-                        temperature=temperature
-                    )
-                else:
-                    return model_name  # 直接返回模型名称，由ADK处理
+                return LiteLlm(
+                    model="openai/gpt-4.1-mini",
+                    api_base=kingdora_base_url,
+                    api_key=kingdora_api_key,
+                )
             except Exception as e:
-                logger.error(f"配置指定模型出错: {e}")
-        
-        # 优先尝试GPT-4o
-        if oneapi_base_url and oneapi_api_key:
+                logger.error(f"配置gpt-4.1-mini模型时出错: {e}")
+                raise
+        elif oneapi_base_url and oneapi_api_key:
             try:
                 return LiteLlm(
                     model="openai/gpt-4o",
                     api_base=oneapi_base_url,
                     api_key=oneapi_api_key,
-                    temperature=temperature
                 )
             except Exception as e:
-                logger.error(f"配置GPT-4o模型出错: {e}")
-        
-        # 如果无法使用GPT-4o，尝试Gemini
-        if kingdora_base_url and kingdora_api_key:
-            try:
-                return LiteLlm(
-                    model="openai/gemini-pro",
-                    api_base=kingdora_base_url,
-                    api_key=kingdora_api_key,
-                    temperature=temperature
-                )
-            except Exception as e:
-                logger.error(f"配置Gemini模型出错: {e}")
-        
-        # 如果都配置失败，使用默认
-        logger.warning("无法配置特定模型，使用默认GPT-4o-mini")
-        return "openai/gpt-4o-mini"
+                logger.error(f"配置gpt-4o模型时出错: {e}")
+                raise
+        else:
+            logger.error("未找到有效的LLM服务配置，无法初始化LLM实例。请设置KINGDORA或ONEAPI相关环境变量。")
+            raise RuntimeError("未找到有效的LLM服务配置，无法初始化LLM实例。请设置KINGDORA或ONEAPI相关环境变量。")
     
     async def generate_initial_draft(
         self, 

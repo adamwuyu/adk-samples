@@ -7,9 +7,15 @@ alwaysApply: false
 ⚠️注意：无论哪种测试方式，必须切换到adk虚拟环境（conda activate adk）。
 
 ## 基于LLM实时生成内容的集成测试
+
+### 一般测试
 conda activate adk && cd /Users/adam/adk/adk-samples/agents/draft_craft/draft_craft && python -m tests.run_flat_test --use-llm
-或者：
+
+### 输出到文件的测试
 conda activate adk && cd /Users/adam/adk/adk-samples/agents/draft_craft/draft_craft && python -m tests.run_flat_test --use-llm > run_output.txt 2>&1
+
+### 带过滤的测试
+export PYTHONWARNINGS='default'\npython -m draft_craft.tests.run_flat_test --use-llm 2>&1 | grep SCORING_DEBUG
 
 ## 基于dummy内容的集成测试
 conda activate adk

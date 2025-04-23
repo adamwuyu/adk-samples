@@ -31,7 +31,6 @@ from .tools import (
 from .tools.llm_tools import (
     generate_initial_draft,
     save_draft_result,
-    generate_draft_improvement,
     generate_draft_scoring,
     save_scoring_result
 )
@@ -40,6 +39,7 @@ from .tools.scoring_tools import (
     score_for_parents_tool,
     save_parents_scoring_result_tool
 )
+from .tools.writing_tools import write_draft
 
 logger = logging.getLogger(__name__)
 
@@ -71,10 +71,10 @@ kingdora_api_key = os.getenv("KINGDORA_API_KEY")
 if kingdora_base_url and kingdora_api_key:
     try:
         model_instance = LiteLlm(
-            model="openai/gpt-4o-mini",
+            model="openai/gpt-4.1-mini",
             api_base=kingdora_base_url,
             api_key=kingdora_api_key,
-            stream=True,
+            stream=False,
             temperature=0.2
         )
         logger.info("✅ 成功配置Gemini模型")
@@ -97,7 +97,7 @@ if not model_instance and oneapi_base_url and oneapi_api_key:
 # 如果无法配置任何模型，使用默认模型
 if not model_instance:
     logger.warning("⚠️ 未找到模型配置，使用默认GPT模型")
-    model_instance = "openai/gpt-4o-mini"
+    model_instance = "openai/gpt-4.1-mini"
 
 # --- 定义Root Agent ---
 # 扁平化设计：单一Agent + 完整Tool集，不使用循环或嵌套Agent
@@ -114,7 +114,7 @@ root_agent = Agent(
         # V0.9: 新版LLM工具 - 符合ADK标准架构
         FunctionTool(func=generate_initial_draft),
         FunctionTool(func=save_draft_result),
-        FunctionTool(func=generate_draft_improvement),
+        FunctionTool(func=write_draft),
         
         # V0.9: 新版LLM评分工具 - 符合ADK标准架构
         FunctionTool(func=generate_draft_scoring),

@@ -42,6 +42,10 @@ else:
     os.environ["USE_LLM_GENERATOR"] = "false"
     print("已启用模拟内容生成模式（默认）")
 
+# 在测试开始前重置LLM调试日志，确保日志文件创建
+from draft_craft.tools.logging_utils import reset_llm_log
+reset_llm_log()
+
 # 将项目根目录添加到sys.path
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.abspath(os.path.join(SCRIPT_DIR, "..", "..", ".."))

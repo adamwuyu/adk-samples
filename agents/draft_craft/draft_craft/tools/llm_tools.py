@@ -10,7 +10,7 @@ from .state_manager import (
     INITIAL_SCORING_CRITERIA_KEY, CURRENT_DRAFT_KEY, CURRENT_SCORE_KEY,
     CURRENT_FEEDBACK_KEY, ITERATION_COUNT_KEY, SCORE_THRESHOLD_KEY, IS_COMPLETE_KEY
 )
-from .logging_utils import log_generation_event
+from .logging_utils import log_generation_event, reset_llm_log, log_llm_generation
 
 logger = logging.getLogger(__name__)
 
@@ -91,6 +91,9 @@ def generate_initial_draft(tool_context: ToolContext) -> Dict[str, Any]:
     """
     logger.info("启动初始文稿生成工具...")
     
+    # 每次开始初稿生成时，重置LLM调试日志
+    reset_llm_log()
+    
     try:
         # 使用状态管理器
         state_manager = StateManager(tool_context)
@@ -121,6 +124,10 @@ def generate_initial_draft(tool_context: ToolContext) -> Dict[str, Any]:
             requirements=requirements,
             scoring_criteria=criteria
         )
+        
+        # 存储并记录LLM提示词
+        tool_context.state['LLM_LAST_PROMPT'] = prompt
+        log_llm_generation(state_manager.get(ITERATION_COUNT_KEY, 0), prompt, "", tool_name="generate_initial_draft")
         
         # 使用备用文本，以防LLM调用失败
         backup_draft = _get_backup_draft()
@@ -227,6 +234,10 @@ def save_draft_result(content: str, tool_context: ToolContext) -> Dict[str, Any]
                 "iteration": iteration_count
             })
             
+            # 记录LLM生成输出及对应提示词
+            last_prompt = tool_context.state.get('LLM_LAST_PROMPT', '')
+            log_llm_generation(iteration_count, last_prompt, content, tool_name="save_draft_result")
+            
             # 返回摘要信息
             return {
                 "status": "success",
@@ -264,68 +275,6 @@ def save_draft_result(content: str, tool_context: ToolContext) -> Dict[str, Any]
         return {
             "status": "error",
             "message": f"保存文稿失败: {str(e)}"
-        }
-
-def generate_draft_improvement(tool_context: ToolContext) -> Dict[str, Any]:
-    """
-    生成文稿改进提示词，基于当前文稿和反馈。
-    
-    此工具从会话状态读取当前文稿、反馈和评分标准，
-    构建改进提示词供Agent处理。
-    
-    Args:
-        tool_context: ADK工具上下文，用于访问会话状态
-        
-    Returns:
-        dict: 包含操作状态和提示词的字典
-    """
-    logger.info("启动文稿改进工具...")
-    
-    try:
-        # 使用状态管理器
-        state_manager = StateManager(tool_context)
-        
-        # 验证必要的输入数据
-        draft_metadata = state_manager.get_draft_metadata()
-        if not draft_metadata["exists"]:
-            return {
-                "status": "error",
-                "message": "找不到当前文稿，无法生成改进提示词"
-            }
-        
-        # 获取必要数据
-        current_draft = state_manager.get(CURRENT_DRAFT_KEY)
-        feedback = state_manager.get(CURRENT_FEEDBACK_KEY, "")
-        criteria = state_manager.get(INITIAL_SCORING_CRITERIA_KEY, "")
-        
-        # 当前迭代计数
-        iteration_count = state_manager.get(ITERATION_COUNT_KEY, 0)
-        
-        logger.info(f"准备文稿改进。当前文稿长度:{len(current_draft)}，反馈长度:{len(feedback)}")
-        
-        # 构建提示词
-        prompt = REVISION_PROMPT_TEMPLATE.format(
-            current_draft=current_draft,
-            feedback=feedback if feedback else "没有具体反馈，请对文稿进行一般性改进，使其更全面、更有深度。",
-            scoring_criteria=criteria
-        )
-        
-        # ===使用ADK标准方式调用LLM===
-        # 注意：不再直接创建LiteLlm实例，而是直接返回提示词，
-        # 由Agent自己的LLM机制处理生成
-        
-        # 直接将提示词作为结果返回，供Agent处理
-        return {
-            "status": "llm_prompt_ready",
-            "prompt": prompt,
-            "iteration": iteration_count
-        }
-            
-    except Exception as e:
-        logger.error(f"generate_draft_improvement工具执行失败: {e}", exc_info=True)
-        return {
-            "status": "error",
-            "message": f"工具执行失败: {str(e)}"
         }
 
 def generate_draft_scoring(tool_context: ToolContext) -> Dict[str, Any]:

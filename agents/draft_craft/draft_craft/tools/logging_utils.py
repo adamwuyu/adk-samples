@@ -4,9 +4,14 @@ import json
 import logging
 from datetime import datetime
 from typing import Any, Dict, Optional, Union
+import os
 
 # 配置根日志记录器
 logger = logging.getLogger(__name__)
+
+# === LLM专用日志 ===
+# 将LLM调试日志保存为Markdown格式，方便查看
+LLM_LOG_FILE = os.path.join(os.path.dirname(__file__), '../tests/logs/llm_generation_debug.md')
 
 def setup_logging(level=logging.INFO):
     """
@@ -117,3 +122,22 @@ def log_generation_event(
     logger.info(f"生成事件: {json.dumps(log_data, ensure_ascii=False)}")
     
     return log_data 
+
+def reset_llm_log():
+    """每次测试前调用，清空LLM日志文件"""
+    # 确保日志目录存在
+    log_dir = os.path.dirname(LLM_LOG_FILE)
+    os.makedirs(log_dir, exist_ok=True)
+    with open(LLM_LOG_FILE, "w", encoding="utf-8") as f:
+        f.write("")
+
+def log_llm_generation(iteration, prompt, output, tool_name: str = "unknown_tool"):
+    """每次LLM生成时调用，记录调用的工具名称、prompt和输出"""
+    # 确保日志目录存在
+    log_dir = os.path.dirname(LLM_LOG_FILE)
+    os.makedirs(log_dir, exist_ok=True)
+    with open(LLM_LOG_FILE, "a", encoding="utf-8") as f:
+        f.write(f"\n[LLM GENERATION] {datetime.now().isoformat()} 工具:{tool_name} 迭代:{iteration}\n")
+        f.write(f"[PROMPT]\n{prompt[:1000]}{'...' if len(prompt)>1000 else ''}\n")
+        f.write(f"[OUTPUT]\n{output[:1000]}{'...' if len(output)>1000 else ''}\n")
+        f.write("="*60 + "\n") 
