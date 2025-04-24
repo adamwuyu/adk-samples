@@ -18,7 +18,7 @@ class Scorer(LlmAgent):
         draft = state.get(CURRENT_DRAFT_KEY, "")
         criteria = state.get(INITIAL_SCORING_CRITERIA_KEY, "")
         # 生成MOCK分数和反馈
-        score = 8.8
+        score = 88
         feedback = f"MOCK_FEEDBACK: 很棒的稿件！摘要: {draft[:6]} | {criteria[:6]}"
         state[CURRENT_SCORE_KEY] = score
         state[CURRENT_FEEDBACK_KEY] = feedback

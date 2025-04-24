@@ -50,12 +50,12 @@ def test_update_all_success(tool_context):
     sm = StateManager(tool_context)
     results = sm.update({
         INITIAL_REQUIREMENTS_KEY: "req",
-        CURRENT_SCORE_KEY: 9.5,
+        CURRENT_SCORE_KEY: 95,
     })
     assert results[INITIAL_REQUIREMENTS_KEY] is True
     assert results[CURRENT_SCORE_KEY] is True
     assert sm.get(INITIAL_REQUIREMENTS_KEY) == "req"
-    assert sm.get(CURRENT_SCORE_KEY) == 9.5
+    assert sm.get(CURRENT_SCORE_KEY) == 95
 
 
 def test_update_partial_failure(tool_context):

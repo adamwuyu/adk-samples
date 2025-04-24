@@ -51,5 +51,5 @@ def test_real_set_and_get(tool_context_real):
     assert sm.set(INITIAL_MATERIAL_KEY, "real material")
     assert sm.get(INITIAL_MATERIAL_KEY) == "real material"
     # 测试数值写入与读取
-    assert sm.set(CURRENT_SCORE_KEY, 8.8)
-    assert sm.get(CURRENT_SCORE_KEY) == 8.8 
+    assert sm.set(CURRENT_SCORE_KEY, 88)
+    assert sm.get(CURRENT_SCORE_KEY) == 88 

@@ -20,11 +20,11 @@ class DummyContext:
     ({
         CURRENT_DRAFT_KEY: "一篇好稿件ABCDEFGH",
         INITIAL_SCORING_CRITERIA_KEY: "标准XYZ123"
-    }, 8.8, "MOCK_FEEDBACK: 很棒的稿件！摘要: 一篇好稿件A | 标准XYZ1"),
+    }, 88, "MOCK_FEEDBACK: 很棒的稿件！摘要: 一篇好稿件A | 标准XYZ1"),
     ({
         CURRENT_DRAFT_KEY: "A",
         INITIAL_SCORING_CRITERIA_KEY: "B"
-    }, 8.8, "MOCK_FEEDBACK: 很棒的稿件！摘要: A | B"),
+    }, 88, "MOCK_FEEDBACK: 很棒的稿件！摘要: A | B"),
 ])
 async def test_scorer_generates_mock(state, expected_score, expected_feedback_prefix):
     agent = Scorer()
@@ -47,6 +47,6 @@ async def test_scorer_missing_inputs():
     async for event in agent._run_async_impl(ctx):
         events.append(event)
     # 依然会生成MOCK分数和反馈，但内容为空
-    assert state[CURRENT_SCORE_KEY] == 8.8
+    assert state[CURRENT_SCORE_KEY] == 88
     assert state[CURRENT_FEEDBACK_KEY].startswith("MOCK_FEEDBACK: 很棒的稿件！摘要:  | ")
     assert events[0]["event"] == "scoring_finished" 

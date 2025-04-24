@@ -20,9 +20,9 @@ TYPE_VALIDATORS: Dict[str, Union[type, tuple]] = {
     INITIAL_REQUIREMENTS_KEY: str,
     INITIAL_SCORING_CRITERIA_KEY: str,
     CURRENT_DRAFT_KEY: str,
-    CURRENT_SCORE_KEY: (int, float),
+    CURRENT_SCORE_KEY: int,
     CURRENT_FEEDBACK_KEY: str,
-    SCORE_THRESHOLD_KEY: (int, float),
+    SCORE_THRESHOLD_KEY: int,
     ITERATION_COUNT_KEY: int,
     IS_COMPLETE_KEY: bool,
 }
