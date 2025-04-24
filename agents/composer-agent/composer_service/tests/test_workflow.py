@@ -3,7 +3,7 @@ from google.adk.agents import SequentialAgent, LoopAgent
 from composer_service.workflow import (
     root_agent,
     loop_agent,
-    ToolAgent,
+    make_tool_agent,
     check_initial_data_agent,
     save_draft_result_agent,
     save_score_agent,
@@ -12,14 +12,6 @@ from composer_service.workflow import (
 )
 from composer_service.agents.draft_writer import DraftWriter
 from composer_service.agents.scorer import Scorer
-
-def test_tool_agent_type():
-    # 所有工具节点都应为ToolAgent
-    assert isinstance(check_initial_data_agent, ToolAgent)
-    assert isinstance(save_draft_result_agent, ToolAgent)
-    assert isinstance(save_score_agent, ToolAgent)
-    assert isinstance(check_progress_agent, ToolAgent)
-    assert isinstance(get_final_draft_agent, ToolAgent)
 
 def test_loop_agent_structure():
     # 验证LoopAgent严格线性结构
