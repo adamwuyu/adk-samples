@@ -10,3 +10,5 @@
 .venv
 *.pyc
 logs/
+composer_service.egg-info/
+__pycache__/
