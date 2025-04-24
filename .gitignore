@@ -12,3 +12,4 @@
 logs/
 composer_service.egg-info/
 __pycache__/
+.coverage
