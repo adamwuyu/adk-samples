@@ -36,8 +36,8 @@ async def test_draft_writer_generates_mock(state, expected_prefix):
     async for event in agent._run_async_impl(ctx):
         events.append(event)
     assert state[CURRENT_DRAFT_KEY].startswith(expected_prefix)
-    assert events[0]["event"] == "draft_generated"
-    assert events[0]["draft"].startswith(expected_prefix)
+    assert getattr(events[0], "event", None) == "draft_generated"
+    assert getattr(events[0], "draft", None).startswith(expected_prefix)
 
 @pytest.mark.asyncio
 async def test_draft_writer_missing_inputs():
@@ -48,4 +48,4 @@ async def test_draft_writer_missing_inputs():
     async for event in agent._run_async_impl(ctx):
         events.append(event)
     assert state.get(CURRENT_DRAFT_KEY, "").startswith("MOCK_DRAFT:  |  | ")
-    assert events[0]["event"] == "draft_generated" 
+    assert getattr(events[0], "event", None) == "draft_generated" 

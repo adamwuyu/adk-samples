@@ -16,15 +16,19 @@ class DummyContext:
 ])
 def test_save_draft_result_basic(content, expected_status):
     ctx = DummyContext()
-    result = save_draft_result(content, ctx)
-    assert result["status"] == expected_status
+    if content is not None:
+        ctx.state[CURRENT_DRAFT_KEY] = content
+    result = save_draft_result(ctx)
+    assert getattr(result, "status", result["status"]) == expected_status
     if expected_status == "success":
         assert ctx.state[CURRENT_DRAFT_KEY] == content
     else:
-        assert CURRENT_DRAFT_KEY not in ctx.state
+        v = ctx.state.get(CURRENT_DRAFT_KEY, None)
+        assert not (isinstance(v, str) and v.strip())
 
 def test_save_draft_result_overwrite():
     ctx = DummyContext({CURRENT_DRAFT_KEY: "旧稿件"})
-    result = save_draft_result("新稿件", ctx)
-    assert result["status"] == "success"
+    ctx.state[CURRENT_DRAFT_KEY] = "新稿件"
+    result = save_draft_result(ctx)
+    assert getattr(result, "status", result["status"]) == "success"
     assert ctx.state[CURRENT_DRAFT_KEY] == "新稿件" 

@@ -34,9 +34,9 @@ async def test_scorer_generates_mock(state, expected_score, expected_feedback_pr
         events.append(event)
     assert state[CURRENT_SCORE_KEY] == expected_score
     assert state[CURRENT_FEEDBACK_KEY].startswith(expected_feedback_prefix)
-    assert events[0]["event"] == "scoring_finished"
-    assert events[0]["score"] == expected_score
-    assert events[0]["feedback"].startswith(expected_feedback_prefix)
+    assert getattr(events[0], "event", None) == "scoring_finished"
+    assert getattr(events[0], "score", None) == expected_score
+    assert getattr(events[0], "feedback", None).startswith(expected_feedback_prefix)
 
 @pytest.mark.asyncio
 async def test_scorer_missing_inputs():
@@ -49,4 +49,4 @@ async def test_scorer_missing_inputs():
     # 依然会生成MOCK分数和反馈，但内容为空
     assert state[CURRENT_SCORE_KEY] == 88
     assert state[CURRENT_FEEDBACK_KEY].startswith("MOCK_FEEDBACK: 很棒的稿件！摘要:  | ")
-    assert events[0]["event"] == "scoring_finished" 
+    assert getattr(events[0], "event", None) == "scoring_finished" 
