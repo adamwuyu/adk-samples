@@ -80,8 +80,8 @@ async def test_draft_writer_llm_exception(monkeypatch):
         async for event in agent.run_async(invoc_context):
             events.append(event)
         # 检查异常分支
-        assert session.state[CURRENT_DRAFT_KEY] == "LLM调用失败"
-        assert getattr(events[0], "draft", None) == "LLM调用失败"
+        assert session.state[CURRENT_DRAFT_KEY].startswith("LLM调用失败")
+        assert getattr(events[0], "draft", None).startswith("LLM调用失败")
         assert getattr(events[0], "event", None) == "draft_generated"
 
 @pytest.mark.asyncio

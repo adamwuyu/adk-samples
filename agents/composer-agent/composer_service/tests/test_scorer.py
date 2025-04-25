@@ -99,9 +99,9 @@ async def test_scorer_llm_exception(monkeypatch):
             events.append(event)
         # 检查异常分支
         assert session.state[CURRENT_SCORE_KEY] == 0
-        assert session.state[CURRENT_FEEDBACK_KEY] == "LLM调用失败"
+        assert session.state[CURRENT_FEEDBACK_KEY].startswith("LLM调用失败")
         assert getattr(events[0], "score", None) == 0
-        assert getattr(events[0], "feedback", None) == "LLM调用失败"
+        assert getattr(events[0], "feedback", None).startswith("LLM调用失败")
         assert getattr(events[0], "event", None) == "scoring_finished"
 
 @pytest.mark.asyncio

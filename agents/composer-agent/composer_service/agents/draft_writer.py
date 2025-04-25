@@ -69,8 +69,10 @@ class DraftWriter(LlmAgent):
             draft = await llm_client(prompt)
             logger.info(f"[DraftWriter] LLM 返回内容长度: {len(draft)}")
         except Exception as e:
+            # raise 异常，导致测试用例会报错
+            raise e
             logger.error(f"[DraftWriter] LLM 调用异常: {e}", exc_info=True)
-            draft = "LLM调用失败"
+            draft = f"LLM调用失败: {e}"
         # TODO: 按照ADK的文档，Agent设置output_key后，其输出会自动保存到session[output_key]中
         # 因此，这里不需要手动保存，但如果注释掉后测试用例会报错，原因不明，后续需要检查
         state[CURRENT_DRAFT_KEY] = draft

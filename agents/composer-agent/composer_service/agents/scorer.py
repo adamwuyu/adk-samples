@@ -81,7 +81,7 @@ class Scorer(LlmAgent):
         except Exception as e:
             logger.error(f"[Scorer] LLM 调用或解析异常: {e}", exc_info=True)
             score = 0
-            feedback = "LLM调用失败"
+            feedback = f"LLM调用失败: {e}"
         state[CURRENT_SCORE_KEY] = score
         state[CURRENT_FEEDBACK_KEY] = feedback
         result = {
