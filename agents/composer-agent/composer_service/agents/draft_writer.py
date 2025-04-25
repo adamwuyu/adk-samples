@@ -8,6 +8,8 @@ from composer_service.tools.constants import (
     CURRENT_DRAFT_KEY,
 )
 from composer_service.llm.client import get_llm_client
+from google.genai.types import Content, Part, GenerateContentConfig
+from google.adk.models.llm_request import LlmRequest
 
 logger = logging.getLogger(__name__)
 
@@ -63,14 +65,25 @@ class DraftWriter(LlmAgent):
             scoring_criteria=criteria
         )
         logger.info(f"[DraftWriter] 调用 LLM 生成初稿，Prompt 预览: {prompt[:60]}...")
-        llm_client = get_llm_client()
         try:
-            # 按官方文档直接调用 llm_client(prompt)
-            draft = await llm_client(prompt)
+            # scorer.py 风格调用 LLM
+            llm_client = get_llm_client()
+            config = GenerateContentConfig()
+            llm_request = LlmRequest(contents=[Content(parts=[Part(text=prompt)])], config=config)
+            draft = ""
+            async for resp_chunk in llm_client.generate_content_async(llm_request):
+                if (
+                    resp_chunk
+                    and resp_chunk.content
+                    and resp_chunk.content.parts
+                    and resp_chunk.content.parts[0].text
+                ):
+                    draft = resp_chunk.content.parts[0].text
+                    break
             logger.info(f"[DraftWriter] LLM 返回内容长度: {len(draft)}")
         except Exception as e:
             # raise 异常，导致测试用例会报错
-            raise e
+            # raise e
             logger.error(f"[DraftWriter] LLM 调用异常: {e}", exc_info=True)
             draft = f"LLM调用失败: {e}"
         # TODO: 按照ADK的文档，Agent设置output_key后，其输出会自动保存到session[output_key]中

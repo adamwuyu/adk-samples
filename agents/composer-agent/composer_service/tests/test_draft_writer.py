@@ -18,6 +18,14 @@ class DummyContext:
     def __init__(self, state):
         self.session = DummySession(state)
 
+# 定义一个通用的模拟响应结构
+def create_mock_response_chunk(text):
+    return SimpleNamespace(
+        content=SimpleNamespace(
+            parts=[SimpleNamespace(text=text)]
+        )
+    )
+
 @pytest.mark.asyncio
 async def test_draft_writer_llm_prompt_and_state(monkeypatch):
     """
@@ -34,21 +42,24 @@ async def test_draft_writer_llm_prompt_and_state(monkeypatch):
     ctx = DummyContext(state)
     prompts = {}
     # mock 的 LLM client，记录 prompt 并返回固定内容
-    class DummyLlm:
-        async def __call__(self, prompt):
-            prompts['content'] = prompt
-            return "LLM生成的稿件内容"
-    # 用 mock.patch 替换 get_llm_client，确保 DraftWriter 不会调用真实 LLM
-    with mock.patch("composer_service.agents.draft_writer.get_llm_client", return_value=DummyLlm()):
+    class MockLlmClient:
+        def __init__(self, response_text):
+            self.response_text = response_text
+            self.captured_request = None
+        async def generate_content_async(self, request):
+            self.captured_request = request
+            yield create_mock_response_chunk(self.response_text)
+    mock_llm = MockLlmClient("LLM生成的稿件内容")
+    with mock.patch("composer_service.agents.draft_writer.get_llm_client", return_value=mock_llm):
         agent = DraftWriter()
         session, invoc_context = make_adk_context(agent, state, invocation_id="test_case_1")
         events = []
         async for event in agent.run_async(invoc_context):
             events.append(event)
         # 检查 prompt 构建
-        assert "素材内容ABCDEFGH" in prompts['content']
-        assert "要求内容12345678" in prompts['content']
-        assert "评分标准XYZ" in prompts['content']
+        assert "素材内容ABCDEFGH" in mock_llm.captured_request.contents[0].parts[0].text
+        assert "要求内容12345678" in mock_llm.captured_request.contents[0].parts[0].text
+        assert "评分标准XYZ" in mock_llm.captured_request.contents[0].parts[0].text
         # 检查状态写入
         assert session.state[CURRENT_DRAFT_KEY] == "LLM生成的稿件内容"
         # 检查事件内容
@@ -70,10 +81,11 @@ async def test_draft_writer_llm_exception(monkeypatch):
     }
     ctx = DummyContext(state)
     # mock 的 LLM client，抛出异常
-    class DummyLlm:
-        async def __call__(self, prompt):
+    class ErrorMockLlmClient:
+        async def generate_content_async(self, request):
             raise RuntimeError("LLM API Error")
-    with mock.patch("composer_service.agents.draft_writer.get_llm_client", return_value=DummyLlm()):
+            yield # 语法上需要，但不会执行
+    with mock.patch("composer_service.agents.draft_writer.get_llm_client", return_value=ErrorMockLlmClient()):
         agent = DraftWriter()
         session, invoc_context = make_adk_context(agent, state, invocation_id="test_case_2")
         events = []
@@ -96,18 +108,22 @@ async def test_draft_writer_missing_inputs(monkeypatch):
     ctx = DummyContext(state)
     prompts = {}
     # mock 的 LLM client，返回空字符串
-    class DummyLlm:
-        async def __call__(self, prompt):
-            prompts['content'] = prompt
-            return ""
-    with mock.patch("composer_service.agents.draft_writer.get_llm_client", return_value=DummyLlm()):
+    class MockLlmClient:
+        def __init__(self, response_text):
+            self.response_text = response_text
+            self.captured_request = None
+        async def generate_content_async(self, request):
+            self.captured_request = request
+            yield create_mock_response_chunk(self.response_text)
+    mock_llm = MockLlmClient("")
+    with mock.patch("composer_service.agents.draft_writer.get_llm_client", return_value=mock_llm):
         agent = DraftWriter()
         session, invoc_context = make_adk_context(agent, state, invocation_id="test_case_3")
         events = []
         async for event in agent.run_async(invoc_context):
             events.append(event)
         # 检查 prompt 构建（即使输入缺失也能生成）
-        assert "素材" in prompts['content'] or "" == prompts['content']
+        assert "素材" in mock_llm.captured_request.contents[0].parts[0].text or "" == mock_llm.captured_request.contents[0].parts[0].text
         # 检查状态写入为空字符串
         assert session.state[CURRENT_DRAFT_KEY] == ""
         assert getattr(events[0], "draft", None) == ""
