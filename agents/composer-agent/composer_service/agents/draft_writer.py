@@ -71,6 +71,8 @@ class DraftWriter(LlmAgent):
         except Exception as e:
             logger.error(f"[DraftWriter] LLM 调用异常: {e}", exc_info=True)
             draft = "LLM调用失败"
+        # TODO: 按照ADK的文档，Agent设置output_key后，其输出会自动保存到session[output_key]中
+        # 因此，这里不需要手动保存，但如果注释掉后测试用例会报错，原因不明，后续需要检查
         state[CURRENT_DRAFT_KEY] = draft
         result = {
             "event": "draft_generated",
