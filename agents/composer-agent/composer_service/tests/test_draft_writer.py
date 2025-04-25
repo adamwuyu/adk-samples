@@ -1,5 +1,4 @@
 import pytest
-from types import SimpleNamespace
 from unittest import mock
 from composer_service.agents.draft_writer import DraftWriter
 from composer_service.tools.constants import (
@@ -8,7 +7,7 @@ from composer_service.tools.constants import (
     INITIAL_SCORING_CRITERIA_KEY,
     CURRENT_DRAFT_KEY,
 )
-from .lib import make_adk_context
+from .lib import make_adk_context, create_mock_response_chunk, MockLlmClient, ErrorMockLlmClient
 
 class DummySession:
     def __init__(self, state):
@@ -42,13 +41,6 @@ async def test_draft_writer_llm_prompt_and_state(monkeypatch):
     ctx = DummyContext(state)
     prompts = {}
     # mock 的 LLM client，记录 prompt 并返回固定内容
-    class MockLlmClient:
-        def __init__(self, response_text):
-            self.response_text = response_text
-            self.captured_request = None
-        async def generate_content_async(self, request):
-            self.captured_request = request
-            yield create_mock_response_chunk(self.response_text)
     mock_llm = MockLlmClient("LLM生成的稿件内容")
     with mock.patch("composer_service.agents.draft_writer.get_llm_client", return_value=mock_llm):
         agent = DraftWriter()
@@ -81,10 +73,6 @@ async def test_draft_writer_llm_exception(monkeypatch):
     }
     ctx = DummyContext(state)
     # mock 的 LLM client，抛出异常
-    class ErrorMockLlmClient:
-        async def generate_content_async(self, request):
-            raise RuntimeError("LLM API Error")
-            yield # 语法上需要，但不会执行
     with mock.patch("composer_service.agents.draft_writer.get_llm_client", return_value=ErrorMockLlmClient()):
         agent = DraftWriter()
         session, invoc_context = make_adk_context(agent, state, invocation_id="test_case_2")
@@ -108,13 +96,6 @@ async def test_draft_writer_missing_inputs(monkeypatch):
     ctx = DummyContext(state)
     prompts = {}
     # mock 的 LLM client，返回空字符串
-    class MockLlmClient:
-        def __init__(self, response_text):
-            self.response_text = response_text
-            self.captured_request = None
-        async def generate_content_async(self, request):
-            self.captured_request = request
-            yield create_mock_response_chunk(self.response_text)
     mock_llm = MockLlmClient("")
     with mock.patch("composer_service.agents.draft_writer.get_llm_client", return_value=mock_llm):
         agent = DraftWriter()

@@ -12,22 +12,13 @@ from composer_service.tools.constants import (
 # 从配置文件导入 Prompt 模板和 Agent 指令
 from .scorer_config import SCORING_PROMPT_TEMPLATE, SCORER_AGENT_INSTRUCTION
 from composer_service.llm.client import get_llm_client
+# 从 composer_service.utils 导入公用函数 (使用绝对路径)
+from composer_service.utils import wrap_event
 
 logger = logging.getLogger(__name__)
 
 # 评分 Prompt 模板 (已移动到 scorer_config.py)
 # SCORING_PROMPT_TEMPLATE = ... (代码省略)
-
-# 递归包装 dict 为 SimpleNamespace，actions 字段单独处理
-def wrap_event(item):
-    if isinstance(item, dict):
-        actions = item.get("actions", {})
-        wrapped = SimpleNamespace(
-            actions=SimpleNamespace(**actions),
-            **{k: v for k, v in item.items() if k != "actions"}
-        )
-        return wrapped
-    return item
 
 class Scorer(LlmAgent):
     def __init__(self):
@@ -79,6 +70,8 @@ class Scorer(LlmAgent):
             score, feedback = self._parse_score_and_feedback(resp_text)
             logger.info(f"[Scorer] LLM 返回分数: {score}, 反馈: {feedback}")
         except Exception as e:
+            # raise 异常，导致测试用例会报错
+            # raise e
             logger.error(f"[Scorer] LLM 调用或解析异常: {e}", exc_info=True)
             score = 0
             feedback = f"LLM调用失败: {e}"

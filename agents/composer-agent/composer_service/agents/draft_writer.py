@@ -10,6 +10,8 @@ from composer_service.tools.constants import (
 from composer_service.llm.client import get_llm_client
 from google.genai.types import Content, Part, GenerateContentConfig
 from google.adk.models.llm_request import LlmRequest
+# 从 composer_service.utils 导入公用函数 (使用绝对路径)
+from composer_service.utils import wrap_event
 
 logger = logging.getLogger(__name__)
 
@@ -34,17 +36,6 @@ INITIAL_WRITING_PROMPT_TEMPLATE = """
 
 直接输出正文内容，无需添加标题或额外说明。
 """
-
-# 递归包装 dict 为 SimpleNamespace，actions 字段单独处理
-def wrap_event(item):
-    if isinstance(item, dict):
-        actions = item.get("actions", {})
-        wrapped = SimpleNamespace(
-            actions=SimpleNamespace(**actions),
-            **{k: v for k, v in item.items() if k != "actions"}
-        )
-        return wrapped
-    return item
 
 class DraftWriter(LlmAgent):
     def __init__(self):
