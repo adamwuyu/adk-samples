@@ -1,5 +1,6 @@
 import os
 import pytest
+import asyncio
 from composer_service.llm.client import get_llm_client
 
 def test_llm_client_real():
@@ -13,4 +14,22 @@ def test_llm_client_real():
         pytest.skip("未设置 KINGDORA_BASE_URL 或 KINGDORA_API_KEY，跳过集成测试")
     llm = get_llm_client()
     assert hasattr(llm, "model")
-    assert llm.model == "openai/gpt-4.1-mini" 
+    assert llm.model == "openai/gpt-4.1-mini"
+
+@pytest.mark.asyncio
+def test_llm_client_generate_content_async():
+    """
+    测试 LiteLlm.generate_content_async 的标准用法。
+    """
+    from google.adk.models.llm_request import LlmRequest
+    from google.genai.types import Content, Part, GenerateContentConfig
+    llm_client = get_llm_client()
+    config = GenerateContentConfig(tools=[])
+    llm_request = LlmRequest(contents=[Content(parts=[Part(text="hi, 你是谁？")])], config=config)
+    import asyncio
+    async def run():
+        async for resp in llm_client.generate_content_async(llm_request):
+            print(f"generate_content_async 返回: {resp}")
+            assert resp is not None
+            break  # 只取第一个响应即可
+    asyncio.get_event_loop().run_until_complete(run()) 
