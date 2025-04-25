@@ -7,8 +7,31 @@ from composer_service.tools.constants import (
     INITIAL_SCORING_CRITERIA_KEY,
     CURRENT_DRAFT_KEY,
 )
+from composer_service.llm.client import get_llm_client
 
 logger = logging.getLogger(__name__)
+
+# 提示词模板
+INITIAL_WRITING_PROMPT_TEMPLATE = """
+你是一位专业文案写手。现在，请你基于以下素材和要求，撰写一篇高质量的文章：
+
+## 素材
+{material}
+
+## 写作要求
+{requirements}
+
+## 评分标准
+{scoring_criteria}
+
+请确保你的文稿:
+1. 符合写作要求的主题和目标
+2. 满足评分标准的要求
+3. 具有清晰的结构和流畅的逻辑
+4. 语言准确、简洁、易于理解
+
+直接输出正文内容，无需添加标题或额外说明。
+"""
 
 # 递归包装 dict 为 SimpleNamespace，actions 字段单独处理
 def wrap_event(item):
@@ -30,13 +53,24 @@ class DraftWriter(LlmAgent):
         )
 
     async def _run_async_impl(self, ctx):
-        # 读取state
         state = ctx.session.state
         material = state.get(INITIAL_MATERIAL_KEY, "")
         requirements = state.get(INITIAL_REQUIREMENTS_KEY, "")
         criteria = state.get(INITIAL_SCORING_CRITERIA_KEY, "")
-        # 生成MOCK内容，取前6字符作为摘要
-        draft = f"MOCK_DRAFT: {material[:6]} | {requirements[:6]} | {criteria[:6]}"
+        prompt = INITIAL_WRITING_PROMPT_TEMPLATE.format(
+            material=material,
+            requirements=requirements,
+            scoring_criteria=criteria
+        )
+        logger.info(f"[DraftWriter] 调用 LLM 生成初稿，Prompt 预览: {prompt[:60]}...")
+        llm_client = get_llm_client()
+        try:
+            # 按官方文档直接调用 llm_client(prompt)
+            draft = await llm_client(prompt)
+            logger.info(f"[DraftWriter] LLM 返回内容长度: {len(draft)}")
+        except Exception as e:
+            logger.error(f"[DraftWriter] LLM 调用异常: {e}", exc_info=True)
+            draft = "LLM调用失败"
         state[CURRENT_DRAFT_KEY] = draft
         result = {
             "event": "draft_generated",
