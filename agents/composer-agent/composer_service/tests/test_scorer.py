@@ -1,5 +1,6 @@
 import pytest
 from unittest import mock
+from composer_service.agents.scorer_config import SCORING_PROMPT_TEMPLATE, SCORER_AGENT_INSTRUCTION
 from composer_service.agents.scorer import Scorer
 from composer_service.tools.constants import (
     CURRENT_DRAFT_KEY,
@@ -13,10 +14,13 @@ from .lib import make_adk_context
 async def test_scorer_llm_prompt_and_state(monkeypatch):
     """
     测试 Scorer 能正确构建评分 Prompt，调用 LLM 并写入分数和反馈。
+    同时检查 Agent instruction 和 Prompt 的精确性。
     """
+    draft_text = "一篇好稿件ABCDEFGH"
+    criteria_text = "标准XYZ123"
     state = {
-        CURRENT_DRAFT_KEY: "一篇好稿件ABCDEFGH",
-        INITIAL_SCORING_CRITERIA_KEY: "标准XYZ123"
+        CURRENT_DRAFT_KEY: draft_text,
+        INITIAL_SCORING_CRITERIA_KEY: criteria_text
     }
     prompts = {}
     class DummyLlm:
@@ -26,12 +30,25 @@ async def test_scorer_llm_prompt_and_state(monkeypatch):
     with mock.patch("composer_service.agents.scorer.get_llm_client", return_value=DummyLlm()):
         agent = Scorer()
         session, ctx = make_adk_context(agent, state)
+        
+        # 检查 Agent instruction 是否正确设置
+        expected_instruction = SCORER_AGENT_INSTRUCTION.format(
+            draft_key=CURRENT_DRAFT_KEY,
+            criteria_key=INITIAL_SCORING_CRITERIA_KEY
+        )
+        assert agent.instruction == expected_instruction
+
         events = []
         async for event in agent.run_async(ctx):
             events.append(event)
-        # 检查 prompt 构建
-        assert "一篇好稿件ABCDEFGH" in prompts['content']
-        assert "标准XYZ123" in prompts['content']
+            
+        # 检查 prompt 构建的精确性
+        expected_prompt = SCORING_PROMPT_TEMPLATE.format(
+            draft=draft_text,
+            scoring_criteria=criteria_text
+        )
+        assert prompts['content'] == expected_prompt
+        
         # 检查状态写入
         assert session.state[CURRENT_SCORE_KEY] == 95
         assert session.state[CURRENT_FEEDBACK_KEY] == "结构清晰，表达流畅。"

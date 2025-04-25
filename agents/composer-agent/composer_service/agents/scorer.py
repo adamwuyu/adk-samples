@@ -7,25 +7,14 @@ from composer_service.tools.constants import (
     CURRENT_SCORE_KEY,
     CURRENT_FEEDBACK_KEY,
 )
+# 从配置文件导入 Prompt 模板和 Agent 指令
+from .scorer_config import SCORING_PROMPT_TEMPLATE, SCORER_AGENT_INSTRUCTION
 from composer_service.llm.client import get_llm_client
 
 logger = logging.getLogger(__name__)
 
-# 评分 Prompt 模板
-SCORING_PROMPT_TEMPLATE = """
-你是一位专业文稿评审，需要根据评分标准对以下文稿进行评估。
-
-## 评分标准
-{scoring_criteria}
-
-## 待评文稿
-{draft}
-
-请按照以下格式进行评估：
-
-分数: <0-100的整数>
-反馈: <简明扼要的评价和建议>
-"""
+# 评分 Prompt 模板 (已移动到 scorer_config.py)
+# SCORING_PROMPT_TEMPLATE = ... (代码省略)
 
 # 递归包装 dict 为 SimpleNamespace，actions 字段单独处理
 def wrap_event(item):
@@ -40,15 +29,21 @@ def wrap_event(item):
 
 class Scorer(LlmAgent):
     def __init__(self):
+        # 使用配置文件中的指令，并格式化插入实际的 state keys
+        instruction = SCORER_AGENT_INSTRUCTION.format(
+            draft_key=CURRENT_DRAFT_KEY,
+            criteria_key=INITIAL_SCORING_CRITERIA_KEY
+        )
         super().__init__(
             name="Scorer",
-            instruction=f"请根据 state['{CURRENT_DRAFT_KEY}']、state['{INITIAL_SCORING_CRITERIA_KEY}'] 评分并给出反馈。",
+            instruction=instruction,
         )
 
     async def _run_async_impl(self, ctx):
         state = ctx.session.state
         draft = state.get(CURRENT_DRAFT_KEY, "")
         criteria = state.get(INITIAL_SCORING_CRITERIA_KEY, "")
+        # 使用导入的 Prompt 模板
         prompt = SCORING_PROMPT_TEMPLATE.format(
             draft=draft,
             scoring_criteria=criteria
