@@ -1,6 +1,8 @@
 import logging
 from types import SimpleNamespace
 from google.adk.agents import LlmAgent
+from google.adk.models.llm_request import LlmRequest
+from google.genai.types import Content, Part, GenerateContentConfig
 from composer_service.tools.constants import (
     CURRENT_DRAFT_KEY,
     INITIAL_SCORING_CRITERIA_KEY,
@@ -51,12 +53,33 @@ class Scorer(LlmAgent):
         logger.info(f"[Scorer] 调用 LLM 评分，Prompt 预览: {prompt[:60]}...")
         llm_client = get_llm_client()
         try:
-            resp = await llm_client(prompt)
+            # 构造 LlmRequest，并提供空的 GenerateContentConfig
+            config = GenerateContentConfig()
+            llm_request = LlmRequest(contents=[Content(parts=[Part(text=prompt)])], config=config) 
+            
+            # 使用 generate_content_async 并获取第一个响应
+            resp_text = "" # 初始化为空字符串
+            async for resp_chunk in llm_client.generate_content_async(llm_request):
+                # 根据实际返回结构提取文本: resp_chunk.content.parts[0].text
+                if (
+                    resp_chunk
+                    and resp_chunk.content
+                    and resp_chunk.content.parts
+                    and resp_chunk.content.parts[0].text
+                ):
+                    resp_text = resp_chunk.content.parts[0].text
+                    # 假设我们只需要第一个响应块的文本
+                    break 
+            
+            if not resp_text:
+                # 如果循环结束都没有获取到响应文本
+                raise ValueError("LLM did not return any text content.")
+            
             # 解析分数和反馈
-            score, feedback = self._parse_score_and_feedback(resp)
+            score, feedback = self._parse_score_and_feedback(resp_text)
             logger.info(f"[Scorer] LLM 返回分数: {score}, 反馈: {feedback}")
         except Exception as e:
-            logger.error(f"[Scorer] LLM 调用异常: {e}", exc_info=True)
+            logger.error(f"[Scorer] LLM 调用或解析异常: {e}", exc_info=True)
             score = 0
             feedback = "LLM调用失败"
         state[CURRENT_SCORE_KEY] = score
