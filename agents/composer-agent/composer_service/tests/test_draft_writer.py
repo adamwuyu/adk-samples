@@ -8,6 +8,7 @@ from composer_service.tools.constants import (
     INITIAL_SCORING_CRITERIA_KEY,
     CURRENT_DRAFT_KEY,
 )
+from .lib import make_adk_context
 
 class DummySession:
     def __init__(self, state):
@@ -40,15 +41,16 @@ async def test_draft_writer_llm_prompt_and_state(monkeypatch):
     # 用 mock.patch 替换 get_llm_client，确保 DraftWriter 不会调用真实 LLM
     with mock.patch("composer_service.agents.draft_writer.get_llm_client", return_value=DummyLlm()):
         agent = DraftWriter()
+        session, invoc_context = make_adk_context(agent, state, invocation_id="test_case_1")
         events = []
-        async for event in agent._run_async_impl(ctx):
+        async for event in agent.run_async(invoc_context):
             events.append(event)
         # 检查 prompt 构建
         assert "素材内容ABCDEFGH" in prompts['content']
         assert "要求内容12345678" in prompts['content']
         assert "评分标准XYZ" in prompts['content']
         # 检查状态写入
-        assert state[CURRENT_DRAFT_KEY] == "LLM生成的稿件内容"
+        assert session.state[CURRENT_DRAFT_KEY] == "LLM生成的稿件内容"
         # 检查事件内容
         assert getattr(events[0], "draft", None) == "LLM生成的稿件内容"
         assert getattr(events[0], "event", None) == "draft_generated"
@@ -73,11 +75,12 @@ async def test_draft_writer_llm_exception(monkeypatch):
             raise RuntimeError("LLM API Error")
     with mock.patch("composer_service.agents.draft_writer.get_llm_client", return_value=DummyLlm()):
         agent = DraftWriter()
+        session, invoc_context = make_adk_context(agent, state, invocation_id="test_case_2")
         events = []
-        async for event in agent._run_async_impl(ctx):
+        async for event in agent.run_async(invoc_context):
             events.append(event)
         # 检查异常分支
-        assert state[CURRENT_DRAFT_KEY] == "LLM调用失败"
+        assert session.state[CURRENT_DRAFT_KEY] == "LLM调用失败"
         assert getattr(events[0], "draft", None) == "LLM调用失败"
         assert getattr(events[0], "event", None) == "draft_generated"
 
@@ -99,12 +102,13 @@ async def test_draft_writer_missing_inputs(monkeypatch):
             return ""
     with mock.patch("composer_service.agents.draft_writer.get_llm_client", return_value=DummyLlm()):
         agent = DraftWriter()
+        session, invoc_context = make_adk_context(agent, state, invocation_id="test_case_3")
         events = []
-        async for event in agent._run_async_impl(ctx):
+        async for event in agent.run_async(invoc_context):
             events.append(event)
         # 检查 prompt 构建（即使输入缺失也能生成）
         assert "素材" in prompts['content'] or "" == prompts['content']
         # 检查状态写入为空字符串
-        assert state[CURRENT_DRAFT_KEY] == ""
+        assert session.state[CURRENT_DRAFT_KEY] == ""
         assert getattr(events[0], "draft", None) == ""
         assert getattr(events[0], "event", None) == "draft_generated" 
