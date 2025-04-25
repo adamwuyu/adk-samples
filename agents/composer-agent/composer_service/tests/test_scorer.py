@@ -1,5 +1,6 @@
 import pytest
 from unittest import mock
+from types import SimpleNamespace # 导入 SimpleNamespace
 from composer_service.agents.scorer_config import SCORING_PROMPT_TEMPLATE, SCORER_AGENT_INSTRUCTION
 from composer_service.agents.scorer import Scorer
 from composer_service.tools.constants import (
@@ -9,6 +10,14 @@ from composer_service.tools.constants import (
     CURRENT_FEEDBACK_KEY,
 )
 from .lib import make_adk_context
+
+# 定义一个通用的模拟响应结构
+def create_mock_response_chunk(text):
+    return SimpleNamespace(
+        content=SimpleNamespace(
+            parts=[SimpleNamespace(text=text)]
+        )
+    )
 
 @pytest.mark.asyncio
 async def test_scorer_llm_prompt_and_state(monkeypatch):
@@ -22,15 +31,22 @@ async def test_scorer_llm_prompt_and_state(monkeypatch):
         CURRENT_DRAFT_KEY: draft_text,
         INITIAL_SCORING_CRITERIA_KEY: criteria_text
     }
-    prompts = {}
-    class DummyLlm:
-        async def __call__(self, prompt):
-            prompts['content'] = prompt
-            return "分数: 95\n反馈: 结构清晰，表达流畅。"
-    with mock.patch("composer_service.agents.scorer.get_llm_client", return_value=DummyLlm()):
+    # 使用新的 Mock 类
+    class MockLlmClient:
+        def __init__(self, response_text):
+            self.response_text = response_text
+            self.captured_request = None
+
+        async def generate_content_async(self, request):
+            self.captured_request = request # 捕获请求
+            yield create_mock_response_chunk(self.response_text) # 直接 yield
+
+    mock_llm = MockLlmClient("""分数: 95
+反馈: 结构清晰，表达流畅。""")
+    with mock.patch("composer_service.agents.scorer.get_llm_client", return_value=mock_llm): # 直接返回实例
         agent = Scorer()
         session, ctx = make_adk_context(agent, state)
-        
+
         # 检查 Agent instruction 是否正确设置
         expected_instruction = SCORER_AGENT_INSTRUCTION.format(
             draft_key=CURRENT_DRAFT_KEY,
@@ -41,14 +57,17 @@ async def test_scorer_llm_prompt_and_state(monkeypatch):
         events = []
         async for event in agent.run_async(ctx):
             events.append(event)
-            
+
         # 检查 prompt 构建的精确性
         expected_prompt = SCORING_PROMPT_TEMPLATE.format(
             draft=draft_text,
             scoring_criteria=criteria_text
         )
-        assert prompts['content'] == expected_prompt
-        
+        # 从捕获的 request 中获取 prompt
+        assert mock_llm.captured_request is not None, "LLM Client 未被调用"
+        captured_prompt_text = mock_llm.captured_request.contents[0].parts[0].text
+        assert captured_prompt_text == expected_prompt
+
         # 检查状态写入
         assert session.state[CURRENT_SCORE_KEY] == 95
         assert session.state[CURRENT_FEEDBACK_KEY] == "结构清晰，表达流畅。"
@@ -66,10 +85,13 @@ async def test_scorer_llm_exception(monkeypatch):
         CURRENT_DRAFT_KEY: "A",
         INITIAL_SCORING_CRITERIA_KEY: "B"
     }
-    class DummyLlm:
-        async def __call__(self, prompt):
+    # 使用模拟抛出异常的 Mock 类
+    class ErrorMockLlmClient:
+        async def generate_content_async(self, request):
             raise RuntimeError("LLM API Error")
-    with mock.patch("composer_service.agents.scorer.get_llm_client", return_value=DummyLlm()):
+            yield # 语法上需要，但不会执行
+
+    with mock.patch("composer_service.agents.scorer.get_llm_client", return_value=ErrorMockLlmClient()): # 直接返回实例
         agent = Scorer()
         session, ctx = make_adk_context(agent, state)
         events = []
@@ -88,19 +110,36 @@ async def test_scorer_missing_inputs(monkeypatch):
     测试缺少输入时，Prompt 仍能生成，LLM 返回空内容，分数为0，反馈为空字符串。
     """
     state = {}
-    prompts = {}
-    class DummyLlm:
-        async def __call__(self, prompt):
-            prompts['content'] = prompt
-            return ""
-    with mock.patch("composer_service.agents.scorer.get_llm_client", return_value=DummyLlm()):
+    # prompts 字典不再需要，因为 prompt 是通过 captured_request 检查的
+    # prompts = {}
+
+    # 使用之前的 MockLlmClient，但传入空字符串
+    class MockLlmClient: # 重复定义以便于理解，实际项目中可优化
+        def __init__(self, response_text):
+            self.response_text = response_text
+            self.captured_request = None
+
+        async def generate_content_async(self, request):
+            self.captured_request = request
+            yield create_mock_response_chunk(self.response_text) # 直接 yield
+            # 不再需要嵌套的 async_generator 函数
+
+    mock_llm = MockLlmClient("")
+    with mock.patch("composer_service.agents.scorer.get_llm_client", return_value=mock_llm): # 直接返回实例
         agent = Scorer()
         session, ctx = make_adk_context(agent, state)
         events = []
         async for event in agent.run_async(ctx):
             events.append(event)
-        # 检查 prompt 构建
-        assert "" in prompts['content']
+        # 检查 prompt 构建 (现在检查捕获的 request)
+        expected_prompt = SCORING_PROMPT_TEMPLATE.format(
+            draft="", # 缺失输入时 draft 为空
+            scoring_criteria="" # 缺失输入时 criteria 为空
+        )
+        assert mock_llm.captured_request is not None, "LLM Client 未被调用"
+        captured_prompt_text = mock_llm.captured_request.contents[0].parts[0].text
+        assert captured_prompt_text == expected_prompt
+
         # 检查状态写入
         assert session.state[CURRENT_SCORE_KEY] == 0
         assert session.state[CURRENT_FEEDBACK_KEY] == ""

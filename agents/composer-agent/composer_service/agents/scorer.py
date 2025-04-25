@@ -71,11 +71,11 @@ class Scorer(LlmAgent):
                     # 假设我们只需要第一个响应块的文本
                     break 
             
-            if not resp_text:
-                # 如果循环结束都没有获取到响应文本
-                raise ValueError("LLM did not return any text content.")
+            # # 如果循环结束都没有获取到响应文本 (注释掉这段，允许空响应)
+            # if not resp_text:
+            #     raise ValueError("LLM did not return any text content.")
             
-            # 解析分数和反馈
+            # 解析分数和反馈 (即使 resp_text 为空，解析函数也能处理)
             score, feedback = self._parse_score_and_feedback(resp_text)
             logger.info(f"[Scorer] LLM 返回分数: {score}, 反馈: {feedback}")
         except Exception as e:
