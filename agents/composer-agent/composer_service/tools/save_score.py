@@ -13,19 +13,25 @@ def save_score(tool_context) -> dict:
     Returns:
         dict: {"actions": {"escalate": False}, ...}
     """
+    logger.info("[save_score] 开始保存评分和反馈...")
     sm = StateManager(tool_context)
     score = tool_context.state.get(CURRENT_SCORE_KEY, None)
     feedback = tool_context.state.get(CURRENT_FEEDBACK_KEY, "")
     if not isinstance(score, int):
-        logger.info("[save_score] score必须为百分制整数")
+        logger.warning(f"[save_score] 状态中的分数不是有效的整数: {score} ({type(score)})。")
         return {"actions": {"escalate": False}, "status": "error", "message": "score必须为百分制整数"}
     if not isinstance(feedback, str) or not feedback.strip():
-        logger.info("[save_score] feedback必须为非空字符串")
+        logger.warning("[save_score] 状态中的反馈不是有效的非空字符串。")
         return {"actions": {"escalate": False}, "status": "error", "message": "feedback必须为非空字符串"}
-    ok1 = sm.set(CURRENT_SCORE_KEY, score)
-    ok2 = sm.set(CURRENT_FEEDBACK_KEY, feedback)
-    if ok1 and ok2:
-        return {"actions": {"escalate": False}, "status": "success"}
-    else:
-        logger.error("[save_score] 保存评分或反馈失败")
-        return {"actions": {"escalate": False}, "status": "error", "message": "保存评分或反馈失败"} 
+    try:
+        ok1 = sm.set(CURRENT_SCORE_KEY, score)
+        ok2 = sm.set(CURRENT_FEEDBACK_KEY, feedback)
+        if ok1 and ok2:
+            logger.info(f"[save_score] 评分 ({score}) 和反馈成功保存到状态。")
+            return {"actions": {"escalate": False}, "status": "success"}
+        else:
+            logger.error(f"[save_score] StateManager 返回保存失败信号 (score: {ok1}, feedback: {ok2})。")
+            return {"actions": {"escalate": False}, "status": "error", "message": "保存评分或反馈失败"}
+    except Exception as e:
+        logger.exception(f"[save_score] 保存评分或反馈时发生异常: {e}")
+        return {"actions": {"escalate": False}, "status": "error", "message": f"保存评分或反馈时发生异常: {e}"} 
