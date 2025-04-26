@@ -1,2 +1,0 @@
-[console_scripts]
-composer-service = composer_service:root_agent

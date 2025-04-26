@@ -1,8 +1,12 @@
 import logging
-from google.adk.agents import BaseAgent
+from google.adk.agents import BaseAgent, LlmAgent
 from pydantic import PrivateAttr
-from composer_service.agents.draft_writer import DraftWriter
-from composer_service.agents.scorer import Scorer
+from ..agents.draft_writer import DraftWriter
+from ..agents.scorer import Scorer
+from ..tools.check_initial_data import check_initial_data
+from ..tools.check_progress import check_progress
+from ..tools.save_draft_result import save_draft_result
+from ..tools.save_score import save_score
 from google.adk.tools import ToolContext
 from google.adk.agents.invocation_context import InvocationContext
 from types import SimpleNamespace

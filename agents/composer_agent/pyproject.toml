@@ -3,7 +3,7 @@ requires = ["setuptools", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "composer-service"
+name = "composer_agent"
 version = "0.1.0"
 description = "ADK 规范的 Composer Service 智能体"
 authors = [{name = "Your Name", email = "you@example.com"}]
