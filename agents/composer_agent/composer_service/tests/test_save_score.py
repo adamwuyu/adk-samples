@@ -1,6 +1,6 @@
 import pytest
-from composer_service.tools.save_score import save_score
-from composer_service.tools.constants import CURRENT_SCORE_KEY, CURRENT_FEEDBACK_KEY
+from ..tools.save_score import save_score
+from ..tools.constants import CURRENT_SCORE_KEY, CURRENT_FEEDBACK_KEY
 
 class DummyContext:
     def __init__(self, state=None):

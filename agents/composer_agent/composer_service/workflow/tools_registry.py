@@ -1,8 +1,8 @@
-from composer_service.tools.check_initial_data import check_initial_data
-from composer_service.tools.save_draft_result import save_draft_result
-from composer_service.tools.save_score import save_score
-from composer_service.tools.check_progress import check_progress
-from composer_service.tools.get_final_draft import get_final_draft
+from ..tools.check_initial_data import check_initial_data
+from ..tools.save_draft_result import save_draft_result
+from ..tools.save_score import save_score
+from ..tools.check_progress import check_progress
+from ..tools.get_final_draft import get_final_draft
 from .agents_registry import make_tool_agent
 
 check_initial_data_agent = make_tool_agent("check_initial_data", check_initial_data)

@@ -12,6 +12,8 @@ from google.adk.agents.invocation_context import InvocationContext
 from types import SimpleNamespace
 import collections.abc
 import asyncio
+from ..utils import wrap_event
+from google.adk.events.event import Event
 
 logger = logging.getLogger(__name__)
 
@@ -23,50 +25,17 @@ def make_tool_agent(name, func, description=None):
             super().__init__(name=name, description=description or func.__doc__)
             self._func = func
         async def _run_async_impl(self, ctx):
+            invocation_id = getattr(ctx, 'invocation_id', '') # 安全获取 invocation_id
             if isinstance(ctx, InvocationContext):
                 tool_ctx = ToolContext(invocation_context=ctx)
             else:
                 tool_ctx = ctx
-            def wrap(item):
-                logger.debug(f"[ToolAgent {name}] wrap input type: {type(item)} value: {item}")
-                if isinstance(item, dict):
-                    actions = item.get("actions", {})
-                    wrapped = SimpleNamespace(
-                        actions=SimpleNamespace(**actions),
-                        **{k: v for k, v in item.items() if k != "actions"}
-                    )
-                    logger.debug(f"[ToolAgent {name}] wrap output type: {type(wrapped)} value: {wrapped}")
-                    return wrapped
-                return item
             result = self._func(tool_ctx)
-            # 兼容异步生成器
-            if isinstance(result, collections.abc.AsyncGenerator):
-                async for item in result:
-                    wrapped = wrap(item)
-                    logger.debug(f"[ToolAgent {name}] yield type: {type(wrapped)} value: {wrapped}")
-                    yield wrapped
-            # 兼容同步生成器
-            elif isinstance(result, collections.abc.Generator):
-                for item in result:
-                    wrapped = wrap(item)
-                    logger.debug(f"[ToolAgent {name}] yield type: {type(wrapped)} value: {wrapped}")
-                    yield wrapped
-            # 兼容 awaitable
-            elif asyncio.iscoroutine(result):
-                item = await result
-                wrapped = wrap(item)
-                logger.debug(f"[ToolAgent {name}] yield type: {type(wrapped)} value: {wrapped}")
-                yield wrapped
-            # 兼容列表
-            elif isinstance(result, list):
-                for item in result:
-                    wrapped = wrap(item)
-                    logger.debug(f"[ToolAgent {name}] yield type: {type(wrapped)} value: {wrapped}")
-                    yield wrapped
-            else:
-                wrapped = wrap(result)
-                logger.debug(f"[ToolAgent {name}] yield type: {type(wrapped)} value: {wrapped}")
-                yield wrapped
+            # 如果是 awaitable，等待其完成
+            if asyncio.iscoroutine(result):
+                await result
+            # Yield 一个空的 Event 对象，包含 author 和 invocation_id
+            yield Event(author=self.name, invocation_id=invocation_id)
     return ToolAgent()
 
 draft_writer_agent = DraftWriter()

@@ -10,8 +10,8 @@ from .lib import make_adk_context
 from google.adk.tools import ToolContext
 from google.adk.agents import BaseAgent
 
-from composer_service.tools.state_manager import StateManager
-from composer_service.tools.constants import (
+from ..tools.state_manager import StateManager
+from ..tools.constants import (
     INITIAL_MATERIAL_KEY,
     CURRENT_SCORE_KEY,
     SCORE_THRESHOLD_KEY,

@@ -1,5 +1,5 @@
-from composer_service.tools.state_manager import StateManager
-from composer_service.tools.constants import CURRENT_DRAFT_KEY, CURRENT_SCORE_KEY, CURRENT_FEEDBACK_KEY, ITERATION_COUNT_KEY
+from .state_manager import StateManager
+from .constants import CURRENT_DRAFT_KEY, CURRENT_SCORE_KEY, CURRENT_FEEDBACK_KEY, ITERATION_COUNT_KEY
 
 def get_final_draft(tool_context) -> dict:
     """

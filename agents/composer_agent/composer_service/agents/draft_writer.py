@@ -1,17 +1,17 @@
 import logging
 from types import SimpleNamespace
 from google.adk.agents import LlmAgent
-from composer_service.tools.constants import (
+from ..tools.constants import (
     INITIAL_MATERIAL_KEY,
     INITIAL_REQUIREMENTS_KEY,
     INITIAL_SCORING_CRITERIA_KEY,
     CURRENT_DRAFT_KEY,
 )
-from composer_service.llm.client import get_llm_client
+from ..llm.client import get_llm_client
 from google.genai.types import Content, Part, GenerateContentConfig
 from google.adk.models.llm_request import LlmRequest
 # 从 composer_service.utils 导入公用函数 (使用绝对路径)
-from composer_service.utils import wrap_event
+from ..utils import wrap_event
 
 logger = logging.getLogger(__name__)
 
@@ -85,6 +85,6 @@ class DraftWriter(LlmAgent):
             "draft": draft,
             "actions": {"escalate": False}
         }
-        event = wrap_event(result)
+        event = wrap_event(result, self.name, ctx.invocation_id)
         logger.debug(f"[DraftWriter] yield type: {type(event)}, value: {event}")
         yield event 

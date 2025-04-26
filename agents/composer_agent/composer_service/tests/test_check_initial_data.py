@@ -1,6 +1,6 @@
 import pytest
-from composer_service.tools.check_initial_data import check_initial_data
-from composer_service.tools.constants import (
+from ..tools.check_initial_data import check_initial_data
+from ..tools.constants import (
     INITIAL_MATERIAL_KEY,
     INITIAL_REQUIREMENTS_KEY,
     INITIAL_SCORING_CRITERIA_KEY,

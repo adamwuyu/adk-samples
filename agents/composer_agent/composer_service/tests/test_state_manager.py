@@ -1,7 +1,7 @@
 import pytest
 
-from composer_service.tools.state_manager import StateManager
-from composer_service.tools.constants import (
+from ..tools.state_manager import StateManager
+from ..tools.constants import (
     INITIAL_MATERIAL_KEY,
     INITIAL_REQUIREMENTS_KEY,
     INITIAL_SCORING_CRITERIA_KEY,

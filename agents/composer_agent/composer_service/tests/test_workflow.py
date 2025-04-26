@@ -1,6 +1,6 @@
 import pytest
 from google.adk.agents import SequentialAgent, LoopAgent
-from composer_service.workflow import (
+from ..workflow import (
     root_agent,
     loop_agent,
     make_tool_agent,
@@ -10,8 +10,8 @@ from composer_service.workflow import (
     check_progress_agent,
     get_final_draft_agent,
 )
-from composer_service.agents.draft_writer import DraftWriter
-from composer_service.agents.scorer import Scorer
+from ..agents.draft_writer import DraftWriter
+from ..agents.scorer import Scorer
 
 def test_loop_agent_structure():
     # 验证LoopAgent严格线性结构

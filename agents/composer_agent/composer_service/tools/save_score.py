@@ -1,6 +1,6 @@
 import logging
-from composer_service.tools.state_manager import StateManager
-from composer_service.tools.constants import CURRENT_SCORE_KEY, CURRENT_FEEDBACK_KEY
+from .state_manager import StateManager
+from .constants import CURRENT_SCORE_KEY, CURRENT_FEEDBACK_KEY
 
 logger = logging.getLogger(__name__)
 

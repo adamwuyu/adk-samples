@@ -1,6 +1,6 @@
 import logging
-from composer_service.tools.state_manager import StateManager
-from composer_service.tools.constants import (
+from .state_manager import StateManager
+from .constants import (
     CURRENT_SCORE_KEY,
     SCORE_THRESHOLD_KEY,
     ITERATION_COUNT_KEY,

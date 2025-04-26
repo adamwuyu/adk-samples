@@ -1,6 +1,6 @@
 import logging
 from typing import Any, Dict, Union
-from composer_service.tools.constants import (
+from .constants import (
     INITIAL_MATERIAL_KEY,
     INITIAL_REQUIREMENTS_KEY,
     INITIAL_SCORING_CRITERIA_KEY,

@@ -1,7 +1,7 @@
 import pytest
 from unittest import mock
-from composer_service.agents.draft_writer import DraftWriter
-from composer_service.tools.constants import (
+from ..agents.draft_writer import DraftWriter
+from ..tools.constants import (
     INITIAL_MATERIAL_KEY,
     INITIAL_REQUIREMENTS_KEY,
     INITIAL_SCORING_CRITERIA_KEY,
@@ -42,7 +42,7 @@ async def test_draft_writer_llm_prompt_and_state(monkeypatch):
     prompts = {}
     # mock 的 LLM client，记录 prompt 并返回固定内容
     mock_llm = MockLlmClient("LLM生成的稿件内容")
-    with mock.patch("composer_service.agents.draft_writer.get_llm_client", return_value=mock_llm):
+    with mock.patch("composer_agent.composer_service.agents.draft_writer.get_llm_client", return_value=mock_llm):
         agent = DraftWriter()
         session, invoc_context = make_adk_context(agent, state, invocation_id="test_case_1")
         events = []
@@ -55,8 +55,7 @@ async def test_draft_writer_llm_prompt_and_state(monkeypatch):
         # 检查状态写入
         assert session.state[CURRENT_DRAFT_KEY] == "LLM生成的稿件内容"
         # 检查事件内容
-        assert getattr(events[0], "draft", None) == "LLM生成的稿件内容"
-        assert getattr(events[0], "event", None) == "draft_generated"
+        assert events[0].content.parts[0].text == "LLM生成的稿件内容"
 
 @pytest.mark.asyncio
 async def test_draft_writer_llm_exception(monkeypatch):
@@ -73,7 +72,7 @@ async def test_draft_writer_llm_exception(monkeypatch):
     }
     ctx = DummyContext(state)
     # mock 的 LLM client，抛出异常
-    with mock.patch("composer_service.agents.draft_writer.get_llm_client", return_value=ErrorMockLlmClient()):
+    with mock.patch("composer_agent.composer_service.agents.draft_writer.get_llm_client", return_value=ErrorMockLlmClient()):
         agent = DraftWriter()
         session, invoc_context = make_adk_context(agent, state, invocation_id="test_case_2")
         events = []
@@ -81,8 +80,10 @@ async def test_draft_writer_llm_exception(monkeypatch):
             events.append(event)
         # 检查异常分支
         assert session.state[CURRENT_DRAFT_KEY].startswith("LLM调用失败")
-        assert getattr(events[0], "draft", None).startswith("LLM调用失败")
-        assert getattr(events[0], "event", None) == "draft_generated"
+        assert events[0].content.parts[0].text.startswith("LLM调用失败")
+        # 检查状态写入为空字符串 - 错误！异常时状态应为错误信息
+        # assert session.state[CURRENT_DRAFT_KEY] == ""
+        assert session.state[CURRENT_DRAFT_KEY].startswith("LLM调用失败")
 
 @pytest.mark.asyncio
 async def test_draft_writer_missing_inputs(monkeypatch):
@@ -97,7 +98,7 @@ async def test_draft_writer_missing_inputs(monkeypatch):
     prompts = {}
     # mock 的 LLM client，返回空字符串
     mock_llm = MockLlmClient("")
-    with mock.patch("composer_service.agents.draft_writer.get_llm_client", return_value=mock_llm):
+    with mock.patch("composer_agent.composer_service.agents.draft_writer.get_llm_client", return_value=mock_llm):
         agent = DraftWriter()
         session, invoc_context = make_adk_context(agent, state, invocation_id="test_case_3")
         events = []
@@ -107,5 +108,5 @@ async def test_draft_writer_missing_inputs(monkeypatch):
         assert "素材" in mock_llm.captured_request.contents[0].parts[0].text or "" == mock_llm.captured_request.contents[0].parts[0].text
         # 检查状态写入为空字符串
         assert session.state[CURRENT_DRAFT_KEY] == ""
-        assert getattr(events[0], "draft", None) == ""
-        assert getattr(events[0], "event", None) == "draft_generated" 
+        assert events[0].content.parts[0].text == ""
+ 

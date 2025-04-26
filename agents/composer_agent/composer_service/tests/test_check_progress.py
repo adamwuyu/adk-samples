@@ -1,6 +1,6 @@
 import pytest
-from composer_service.tools.check_progress import check_progress
-from composer_service.tools.constants import (
+from ..tools.check_progress import check_progress
+from ..tools.constants import (
     CURRENT_SCORE_KEY,
     SCORE_THRESHOLD_KEY,
     ITERATION_COUNT_KEY,

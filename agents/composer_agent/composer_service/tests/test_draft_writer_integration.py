@@ -1,7 +1,7 @@
 import os
 import pytest
-from composer_service.agents.draft_writer import DraftWriter
-from composer_service.tools.constants import (
+from ..agents.draft_writer import DraftWriter
+from ..tools.constants import (
     INITIAL_MATERIAL_KEY,
     INITIAL_REQUIREMENTS_KEY,
     INITIAL_SCORING_CRITERIA_KEY,
@@ -48,4 +48,4 @@ def test_draft_writer_real_llm():
     draft = session.state.get(CURRENT_DRAFT_KEY, "")
     assert isinstance(draft, str) and draft.strip() != ""
     # 事件内容也应为非空字符串
-    assert getattr(events[0], "draft", None) and isinstance(getattr(events[0], "draft", None), str) 
+    assert events[0].content.parts[0].text and isinstance(events[0].content.parts[0].text, str) 

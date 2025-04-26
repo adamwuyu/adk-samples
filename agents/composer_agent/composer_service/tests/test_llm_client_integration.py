@@ -1,7 +1,7 @@
 import os
 import pytest
 import asyncio
-from composer_service.llm.client import get_llm_client
+from ..llm.client import get_llm_client
 
 def test_llm_client_real():
     """

@@ -1,6 +1,6 @@
 import pytest
-from composer_service.tools.save_draft_result import save_draft_result
-from composer_service.tools.constants import CURRENT_DRAFT_KEY
+from ..tools.save_draft_result import save_draft_result
+from ..tools.constants import CURRENT_DRAFT_KEY
 
 class DummyContext:
     def __init__(self, state=None):
